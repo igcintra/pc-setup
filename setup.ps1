@@ -312,7 +312,7 @@ if (Test-Path $keepassExe) {
 Write-Host "`n[6/$etapaTotal] Instalando OpenVPN 2.4.7..." -ForegroundColor Cyan
 
 # INSTRUCAO: Substitua o link abaixo pelo link do Google Drive com o instalador
-$openvpnUrl = "LINK_DO_GOOGLE_DRIVE_AQUI"
+$openvpnUrl = "https://drive.google.com/uc?export=download&id=1H_i2cSJJGKT4lLfqD5HYHk9sJ-k-mC01"
 $openvpnInstaller = "$env:TEMP\openvpn-install-2.4.7.exe"
 
 try {
