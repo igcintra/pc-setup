@@ -64,11 +64,10 @@ Log "--- REMOVENDO PROGRAMAS VIA WINGET ---"
 $programas = @(
     @{ nome = "Google Chrome";   id = "Google.Chrome" },
     @{ nome = "KeePass 2";      id = "DominikReichl.KeePass" },
-    @{ nome = "WinRAR";         id = "RARLab.WinRAR" },
     @{ nome = "Slack";          id = "SlackTechnologies.Slack" }
 )
 
-$total = $programas.Count + 2
+$total = $programas.Count + 3  # +3 para WinRAR, AnyDesk e OpenVPN
 $atual = 0
 
 foreach ($prog in $programas) {
@@ -88,6 +87,41 @@ foreach ($prog in $programas) {
     }
     Log ""
 }
+
+# ============================================
+# WINRAR - Remocao direta (nao respeita --silent do winget)
+# ============================================
+
+$atual++
+Log "[$atual/$total] Removendo WinRAR..."
+$winrarRemovido = $false
+
+$winrarUninstall = "$env:ProgramFiles\WinRAR\uninstall.exe"
+if (Test-Path $winrarUninstall) {
+    Log "  Executando: $winrarUninstall /S"
+    $proc = Start-Process $winrarUninstall -ArgumentList "/S" -Wait -PassThru -ErrorAction SilentlyContinue
+    Log "  Exit code: $($proc.ExitCode)"
+    Log "  OK - Removido via desinstalador"
+    $winrarRemovido = $true
+}
+
+if (-not $winrarRemovido) {
+    # Tentar x86
+    $winrarUninstall = "${env:ProgramFiles(x86)}\WinRAR\uninstall.exe"
+    if (Test-Path $winrarUninstall) {
+        $proc = Start-Process $winrarUninstall -ArgumentList "/S" -Wait -PassThru -ErrorAction SilentlyContinue
+        Log "  OK - Removido via desinstalador (x86)"
+        $winrarRemovido = $true
+    }
+}
+
+if (-not $winrarRemovido) {
+    Log "  Ja desinstalado"
+}
+
+Remove-Item "$env:ProgramFiles\WinRAR" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item "${env:ProgramFiles(x86)}\WinRAR" -Recurse -Force -ErrorAction SilentlyContinue
+Log ""
 
 # ============================================
 # ANYDESK
