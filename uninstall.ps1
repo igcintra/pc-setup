@@ -45,16 +45,6 @@ foreach ($prog in $programas) {
     }
 }
 
-# Remover usuario Admin
-Write-Host "`nRemovendo usuario Admin..." -ForegroundColor Yellow -NoNewline
-$usuarioExiste = Get-LocalUser -Name "Admin" -ErrorAction SilentlyContinue
-if ($usuarioExiste) {
-    Remove-LocalUser -Name "Admin" -ErrorAction SilentlyContinue
-    Write-Host " OK" -ForegroundColor Green
-} else {
-    Write-Host " Nao encontrado" -ForegroundColor Gray
-}
-
 Write-Host ""
 Write-Host "=========================================" -ForegroundColor Green
 Write-Host "  DESINSTALACAO CONCLUIDA!" -ForegroundColor Green
