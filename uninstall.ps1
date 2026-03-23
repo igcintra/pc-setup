@@ -41,7 +41,32 @@ foreach ($prog in $programas) {
     } elseif ($resultado -match "No installed package") {
         Write-Host " Nao encontrado" -ForegroundColor Gray
     } else {
-        Write-Host " ERRO" -ForegroundColor Red
+        Write-Host " Winget falhou, tentando metodo alternativo..." -ForegroundColor Yellow
+        $removido = $false
+
+        # Tentar via registro do Windows (uninstall string)
+        $regPaths = @(
+            "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+        )
+        foreach ($regPath in $regPaths) {
+            $entry = Get-ItemProperty $regPath -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -like "*$($prog.nome)*" }
+            if ($entry) {
+                $uninstallCmd = $entry.UninstallString
+                if ($entry.QuietUninstallString) { $uninstallCmd = $entry.QuietUninstallString }
+                if ($uninstallCmd) {
+                    Start-Process cmd.exe -ArgumentList "/c $uninstallCmd /S /silent /quiet /norestart" -Wait -ErrorAction SilentlyContinue
+                    Write-Host "  Removido via registro" -ForegroundColor Green
+                    $removido = $true
+                    break
+                }
+            }
+        }
+
+        if (-not $removido) {
+            Write-Host "  Nao foi possivel remover automaticamente" -ForegroundColor Red
+        }
     }
 }
 
