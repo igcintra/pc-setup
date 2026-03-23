@@ -1,6 +1,7 @@
 # ============================================
 # DESINSTALAR PROGRAMAS DO SETUP
 # Script para testes - remove tudo que o setup instala
+# Gera log detalhado na Area de Trabalho
 # ============================================
 
 # Verificar se esta rodando como Administrador
@@ -12,6 +13,15 @@ if (-not $isAdmin) {
     exit
 }
 
+$desktop = [Environment]::GetFolderPath("Desktop")
+$logFile = "$desktop\uninstall-log.txt"
+$log = @("========== LOG DE DESINSTALACAO ==========", "Data: $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')", "")
+
+function Log($msg) {
+    $script:log += $msg
+    Write-Host $msg
+}
+
 Write-Host ""
 Write-Host "=========================================" -ForegroundColor Red
 Write-Host "  DESINSTALACAO - MODO TESTE" -ForegroundColor Red
@@ -19,8 +29,37 @@ Write-Host "=========================================" -ForegroundColor Red
 Write-Host ""
 
 # ============================================
+# LISTAR TUDO QUE O WINGET VE INSTALADO
+# ============================================
+
+Log "--- PROGRAMAS DETECTADOS PELO WINGET ---"
+$wingetList = winget list 2>&1
+$log += $wingetList | Out-String
+Log ""
+
+Log "--- PROGRAMAS NO REGISTRO DO WINDOWS ---"
+$regPaths = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+)
+foreach ($regPath in $regPaths) {
+    Get-ItemProperty $regPath -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -like "*AnyDesk*" -or $_.DisplayName -like "*OpenVPN*" } |
+        ForEach-Object {
+            Log "  Nome: $($_.DisplayName)"
+            Log "  UninstallString: $($_.UninstallString)"
+            Log "  QuietUninstallString: $($_.QuietUninstallString)"
+            Log "  InstallLocation: $($_.InstallLocation)"
+            Log "  RegPath: $($_.PSPath)"
+            Log ""
+        }
+}
+
+# ============================================
 # PROGRAMAS VIA WINGET
 # ============================================
+
+Log "--- REMOVENDO PROGRAMAS VIA WINGET ---"
 
 $programas = @(
     @{ nome = "Google Chrome";   id = "Google.Chrome" },
@@ -29,146 +68,202 @@ $programas = @(
     @{ nome = "Slack";          id = "SlackTechnologies.Slack" }
 )
 
-$total = $programas.Count + 2  # +2 para AnyDesk e OpenVPN
+$total = $programas.Count + 2
 $atual = 0
 
 foreach ($prog in $programas) {
     $atual++
-    Write-Host "[$atual/$total] Removendo $($prog.nome)..." -ForegroundColor Yellow -NoNewline
+    Log "[$atual/$total] Removendo $($prog.nome)..."
 
     $resultado = winget uninstall --id $prog.id -e --silent 2>&1
+    $exitCode = $LASTEXITCODE
 
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host " OK" -ForegroundColor Green
+    Log "  Exit code: $exitCode"
+    Log "  Resultado: $($resultado | Out-String)"
+
+    if ($exitCode -eq 0) {
+        Log "  STATUS: OK"
     } else {
-        Write-Host " Ja desinstalado" -ForegroundColor Gray
+        Log "  STATUS: Ja desinstalado ou nao encontrado"
     }
+    Log ""
 }
 
 # ============================================
-# ANYDESK - Remocao direta
+# ANYDESK
 # ============================================
 
 $atual++
-Write-Host "[$atual/$total] Removendo AnyDesk..." -ForegroundColor Yellow
-
+Log "[$atual/$total] Removendo AnyDesk..."
 $anydeskRemovido = $false
 
-# Fechar processo
 Stop-Process -Name "AnyDesk" -Force -ErrorAction SilentlyContinue
+Log "  Processo AnyDesk finalizado (se existia)"
 
-# Metodo 1: Desinstalador proprio
+# Verificar onde esta instalado
 $anydeskPaths = @(
     "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe",
-    "$env:ProgramFiles\AnyDesk\AnyDesk.exe"
+    "$env:ProgramFiles\AnyDesk\AnyDesk.exe",
+    "$env:APPDATA\AnyDesk\AnyDesk.exe",
+    "$env:LOCALAPPDATA\AnyDesk\AnyDesk.exe"
 )
+
 foreach ($path in $anydeskPaths) {
-    if (Test-Path $path) {
-        Start-Process $path -ArgumentList "--remove --silent" -Wait -ErrorAction SilentlyContinue
-        Write-Host "  OK - Removido via desinstalador" -ForegroundColor Green
+    $existe = Test-Path $path
+    Log "  Verificando $path : $existe"
+    if ($existe -and -not $anydeskRemovido) {
+        Log "  Executando: $path --remove --silent"
+        $proc = Start-Process $path -ArgumentList "--remove --silent" -Wait -PassThru -ErrorAction SilentlyContinue
+        Log "  Exit code: $($proc.ExitCode)"
         $anydeskRemovido = $true
-        break
     }
 }
 
-# Metodo 2: Via registro
+# Via registro
 if (-not $anydeskRemovido) {
-    $regPaths = @(
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
-        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
-    )
+    Log "  Tentando via registro..."
     foreach ($regPath in $regPaths) {
-        $entry = Get-ItemProperty $regPath -ErrorAction SilentlyContinue |
+        $entries = Get-ItemProperty $regPath -ErrorAction SilentlyContinue |
             Where-Object { $_.DisplayName -like "*AnyDesk*" }
-        if ($entry -and $entry.UninstallString) {
-            Start-Process cmd.exe -ArgumentList "/c `"$($entry.UninstallString)`" --silent" -Wait -ErrorAction SilentlyContinue
-            Write-Host "  OK - Removido via registro" -ForegroundColor Green
+        foreach ($entry in $entries) {
+            Log "  Encontrado: $($entry.DisplayName)"
+            Log "  UninstallString: $($entry.UninstallString)"
+            Log "  QuietUninstallString: $($entry.QuietUninstallString)"
+            $cmd = if ($entry.QuietUninstallString) { $entry.QuietUninstallString } else { "$($entry.UninstallString) --silent" }
+            Log "  Executando: cmd /c $cmd"
+            $proc = Start-Process cmd.exe -ArgumentList "/c $cmd" -Wait -PassThru -ErrorAction SilentlyContinue
+            Log "  Exit code: $($proc.ExitCode)"
             $anydeskRemovido = $true
-            break
         }
     }
 }
 
-# Metodo 3: Winget
+# Via winget
 if (-not $anydeskRemovido) {
-    winget uninstall --id AnyDeskSoftware.AnyDesk -e --silent 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "  OK - Removido via winget" -ForegroundColor Green
-        $anydeskRemovido = $true
-    }
+    Log "  Tentando via winget..."
+    $resultado = winget uninstall --id AnyDeskSoftware.AnyDesk -e --silent 2>&1
+    Log "  Exit code: $LASTEXITCODE"
+    Log "  Resultado: $($resultado | Out-String)"
+    if ($LASTEXITCODE -eq 0) { $anydeskRemovido = $true }
 }
 
+# Winget sem --silent
 if (-not $anydeskRemovido) {
-    Write-Host "  Ja desinstalado" -ForegroundColor Gray
+    Log "  Tentando winget sem --silent..."
+    $resultado = winget uninstall --id AnyDeskSoftware.AnyDesk -e 2>&1
+    Log "  Exit code: $LASTEXITCODE"
+    Log "  Resultado: $($resultado | Out-String)"
+    if ($LASTEXITCODE -eq 0) { $anydeskRemovido = $true }
 }
 
-# Limpar pasta residual
+# Winget por nome
+if (-not $anydeskRemovido) {
+    Log "  Tentando winget por nome..."
+    $resultado = winget uninstall --name "AnyDesk" --silent 2>&1
+    Log "  Exit code: $LASTEXITCODE"
+    Log "  Resultado: $($resultado | Out-String)"
+    if ($LASTEXITCODE -eq 0) { $anydeskRemovido = $true }
+}
+
+Log "  ANYDESK REMOVIDO: $anydeskRemovido"
+
 Remove-Item "${env:ProgramFiles(x86)}\AnyDesk" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item "$env:ProgramFiles\AnyDesk" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item "$env:APPDATA\AnyDesk" -Recurse -Force -ErrorAction SilentlyContinue
+Log ""
 
 # ============================================
-# OPENVPN - Remocao direta
+# OPENVPN
 # ============================================
 
 $atual++
-Write-Host "[$atual/$total] Removendo OpenVPN..." -ForegroundColor Yellow
-
+Log "[$atual/$total] Removendo OpenVPN..."
 $openvpnRemovido = $false
 
-# Fechar processos
 Stop-Process -Name "openvpn*" -Force -ErrorAction SilentlyContinue
 Stop-Process -Name "openvpnserv*" -Force -ErrorAction SilentlyContinue
+Log "  Processos OpenVPN finalizados (se existiam)"
 
-# Metodo 1: Desinstalador proprio
+# Verificar desinstalador
 $openvpnUninstall = "$env:ProgramFiles\OpenVPN\Uninstall.exe"
-if (Test-Path $openvpnUninstall) {
-    Start-Process $openvpnUninstall -ArgumentList "/S" -Wait -ErrorAction SilentlyContinue
-    Write-Host "  OK - Removido via desinstalador" -ForegroundColor Green
+$existe = Test-Path $openvpnUninstall
+Log "  Verificando $openvpnUninstall : $existe"
+
+if ($existe) {
+    Log "  Executando: $openvpnUninstall /S"
+    $proc = Start-Process $openvpnUninstall -ArgumentList "/S" -Wait -PassThru -ErrorAction SilentlyContinue
+    Log "  Exit code: $($proc.ExitCode)"
     $openvpnRemovido = $true
 }
 
-# Metodo 2: Via registro (MSI)
+# Via registro
 if (-not $openvpnRemovido) {
-    $regPaths = @(
-        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
-        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
-    )
+    Log "  Tentando via registro..."
     foreach ($regPath in $regPaths) {
-        $entry = Get-ItemProperty $regPath -ErrorAction SilentlyContinue |
+        $entries = Get-ItemProperty $regPath -ErrorAction SilentlyContinue |
             Where-Object { $_.DisplayName -like "*OpenVPN*" }
-        if ($entry) {
+        foreach ($entry in $entries) {
+            Log "  Encontrado: $($entry.DisplayName)"
+            Log "  UninstallString: $($entry.UninstallString)"
             if ($entry.UninstallString -match "msiexec") {
                 $productCode = $entry.PSChildName
-                Start-Process msiexec.exe -ArgumentList "/x $productCode /qn /norestart" -Wait -ErrorAction SilentlyContinue
+                Log "  Executando: msiexec /x $productCode /qn /norestart"
+                $proc = Start-Process msiexec.exe -ArgumentList "/x $productCode /qn /norestart" -Wait -PassThru -ErrorAction SilentlyContinue
             } else {
-                Start-Process cmd.exe -ArgumentList "/c `"$($entry.UninstallString)`" /S" -Wait -ErrorAction SilentlyContinue
+                Log "  Executando: $($entry.UninstallString) /S"
+                $proc = Start-Process cmd.exe -ArgumentList "/c `"$($entry.UninstallString)`" /S" -Wait -PassThru -ErrorAction SilentlyContinue
             }
-            Write-Host "  OK - Removido via registro" -ForegroundColor Green
+            Log "  Exit code: $($proc.ExitCode)"
             $openvpnRemovido = $true
-            break
         }
     }
 }
 
-# Metodo 3: Winget
+# Via winget
 if (-not $openvpnRemovido) {
-    winget uninstall --id OpenVPNTechnologies.OpenVPN -e --silent 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "  OK - Removido via winget" -ForegroundColor Green
-        $openvpnRemovido = $true
-    }
+    Log "  Tentando via winget..."
+    $resultado = winget uninstall --id OpenVPNTechnologies.OpenVPN -e --silent 2>&1
+    Log "  Exit code: $LASTEXITCODE"
+    Log "  Resultado: $($resultado | Out-String)"
+    if ($LASTEXITCODE -eq 0) { $openvpnRemovido = $true }
 }
 
+# Winget sem --silent
 if (-not $openvpnRemovido) {
-    Write-Host "  Ja desinstalado" -ForegroundColor Gray
+    Log "  Tentando winget sem --silent..."
+    $resultado = winget uninstall --id OpenVPNTechnologies.OpenVPN -e 2>&1
+    Log "  Exit code: $LASTEXITCODE"
+    Log "  Resultado: $($resultado | Out-String)"
+    if ($LASTEXITCODE -eq 0) { $openvpnRemovido = $true }
 }
 
-# Limpar pasta residual
+# Winget por nome
+if (-not $openvpnRemovido) {
+    Log "  Tentando winget por nome..."
+    $resultado = winget uninstall --name "OpenVPN" --silent 2>&1
+    Log "  Exit code: $LASTEXITCODE"
+    Log "  Resultado: $($resultado | Out-String)"
+    if ($LASTEXITCODE -eq 0) { $openvpnRemovido = $true }
+}
+
+Log "  OPENVPN REMOVIDO: $openvpnRemovido"
+
 Remove-Item "$env:ProgramFiles\OpenVPN" -Recurse -Force -ErrorAction SilentlyContinue
+Log ""
+
+# ============================================
+# SALVAR LOG
+# ============================================
+
+$log += ""
+$log += "========== FIM DO LOG =========="
+
+$log | Out-File -FilePath $logFile -Encoding UTF8
 
 Write-Host ""
 Write-Host "=========================================" -ForegroundColor Green
 Write-Host "  DESINSTALACAO CONCLUIDA!" -ForegroundColor Green
+Write-Host "  Log salvo em: $logFile" -ForegroundColor Green
 Write-Host "  Agora pode rodar o setup.ps1 do zero" -ForegroundColor Green
 Write-Host "=========================================" -ForegroundColor Green
 pause
