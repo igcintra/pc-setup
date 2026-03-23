@@ -253,9 +253,8 @@ foreach ($prog in $programas) {
 # AnyDesk - instalacao direta (winget nao funciona bem com ele)
 $atual++
 Write-Host "  [$atual/$total] AnyDesk..." -ForegroundColor Yellow -NoNewline
-$anydeskExePath = "$env:ProgramFiles\AnyDesk\AnyDesk.exe"
-$anydeskExePath2 = "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
-if ((Test-Path $anydeskExePath) -or (Test-Path $anydeskExePath2)) {
+$anydeskRodando = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
+if ($anydeskRodando) {
     Write-Host " Ja instalado" -ForegroundColor Gray
     $instalados += "AnyDesk - Ja instalado"
 } else {
@@ -263,19 +262,18 @@ if ((Test-Path $anydeskExePath) -or (Test-Path $anydeskExePath2)) {
         $anydeskUrl = "https://github.com/igcintra/pc-setup/releases/download/v1.0/AnyDesk.exe"
         $anydeskInstaller = "$env:TEMP\AnyDesk.exe"
         Invoke-WebRequest -Uri $anydeskUrl -OutFile $anydeskInstaller -ErrorAction Stop
-        Start-Process $anydeskInstaller -ArgumentList "--install `"$env:ProgramFiles\AnyDesk`" --start-with-win --silent" -Wait
+        Start-Process $anydeskInstaller -ArgumentList "--install --start-with-win --silent" -Wait -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 5
-        if (Test-Path "$env:ProgramFiles\AnyDesk\AnyDesk.exe") {
+        Remove-Item $anydeskInstaller -Force -ErrorAction SilentlyContinue
+        # Verificar se instalou checando o processo
+        $anydeskRodando = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
+        if ($anydeskRodando) {
             Write-Host " OK" -ForegroundColor Green
             $instalados += "AnyDesk - Instalado"
         } else {
-            # Tentar instalar sem caminho especifico
-            Start-Process $anydeskInstaller -ArgumentList "--install --start-with-win --silent" -Wait
-            Start-Sleep -Seconds 5
-            Write-Host " OK" -ForegroundColor Green
+            Write-Host " OK (pode precisar abrir manualmente)" -ForegroundColor Yellow
             $instalados += "AnyDesk - Instalado"
         }
-        Remove-Item $anydeskInstaller -Force -ErrorAction SilentlyContinue
     } catch {
         Write-Host " ERRO: $_" -ForegroundColor Red
         $instalados += "AnyDesk - ERRO"
