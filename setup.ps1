@@ -250,13 +250,11 @@ foreach ($prog in $programas) {
     }
 }
 
-# AnyDesk - instalacao manual (winget e --install --silent nao funcionam)
+# AnyDesk - baixa e abre instalador (precisa clicar em Instalar)
 $atual++
 Write-Host "  [$atual/$total] AnyDesk..." -ForegroundColor Yellow -NoNewline
-$anydeskDest = "$env:ProgramFiles\AnyDesk"
-$anydeskFinal = "$anydeskDest\AnyDesk.exe"
-
-if ((Test-Path $anydeskFinal) -and (Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue)) {
+$anydeskServico = Get-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
+if ($anydeskServico) {
     Write-Host " Ja instalado" -ForegroundColor Gray
     $instalados += "AnyDesk - Ja instalado"
 } else {
@@ -264,29 +262,27 @@ if ((Test-Path $anydeskFinal) -and (Get-Process -Name "AnyDesk" -ErrorAction Sil
         $anydeskUrl = "https://github.com/igcintra/pc-setup/releases/download/v1.0/AnyDesk.exe"
         $anydeskTemp = "$env:TEMP\AnyDesk.exe"
         Invoke-WebRequest -Uri $anydeskUrl -OutFile $anydeskTemp -ErrorAction Stop
-
-        # Copiar para Program Files
-        New-Item -ItemType Directory -Path $anydeskDest -Force | Out-Null
-        Copy-Item $anydeskTemp $anydeskFinal -Force
+        Write-Host ""
+        Write-Host ""
+        Write-Host "  ============================================" -ForegroundColor Yellow
+        Write-Host "  ATENCAO: AnyDesk vai abrir." -ForegroundColor Yellow
+        Write-Host "  Clique em 'Instalar AnyDesk' no programa." -ForegroundColor Yellow
+        Write-Host "  Depois feche a janela do AnyDesk." -ForegroundColor Yellow
+        Write-Host "  O script continua automaticamente." -ForegroundColor Yellow
+        Write-Host "  ============================================" -ForegroundColor Yellow
+        Write-Host ""
+        Start-Process $anydeskTemp -Wait
         Remove-Item $anydeskTemp -Force -ErrorAction SilentlyContinue
-
-        # Criar atalho no desktop
-        $shell = New-Object -ComObject WScript.Shell
-        $atalho = $shell.CreateShortcut("$desktop\AnyDesk.lnk")
-        $atalho.TargetPath = $anydeskFinal
-        $atalho.WorkingDirectory = $anydeskDest
-        $atalho.Save()
-
-        # Registrar para iniciar com Windows
-        $regKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
-        Set-ItemProperty -Path $regKey -Name "AnyDesk" -Value "`"$anydeskFinal`"" -ErrorAction SilentlyContinue
-
-        # Iniciar AnyDesk agora
-        Start-Process $anydeskFinal
+        # Verificar se instalou como servico
         Start-Sleep -Seconds 3
-
-        Write-Host " OK" -ForegroundColor Green
-        $instalados += "AnyDesk - Instalado"
+        $anydeskServico = Get-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
+        if ($anydeskServico) {
+            Write-Host "  AnyDesk instalado com sucesso!" -ForegroundColor Green
+            $instalados += "AnyDesk - Instalado"
+        } else {
+            Write-Host "  AnyDesk pode nao ter sido instalado corretamente" -ForegroundColor Yellow
+            $instalados += "AnyDesk - Verificar manualmente"
+        }
     } catch {
         Write-Host " ERRO: $_" -ForegroundColor Red
         $instalados += "AnyDesk - ERRO"
