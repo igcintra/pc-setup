@@ -249,7 +249,7 @@ foreach ($prog in $programas) {
         if ($prog.fallback) {
             Write-Host " Winget falhou, baixando direto..." -ForegroundColor Yellow
             try {
-                $anydeskExe = "https://download.anydesk.com/AnyDesk.exe"
+                $anydeskExe = "https://github.com/igcintra/pc-setup/releases/download/v1.0/AnyDesk.exe"
                 $anydeskInstaller = "$env:TEMP\AnyDesk.exe"
                 Invoke-WebRequest -Uri $anydeskExe -OutFile $anydeskInstaller -ErrorAction Stop
                 Start-Process $anydeskInstaller -ArgumentList "--install `"$env:ProgramFiles\AnyDesk`" --start-with-win --silent" -Wait -ErrorAction SilentlyContinue
@@ -311,36 +311,11 @@ if (Test-Path $keepassExe) {
 
 Write-Host "`n[6/$etapaTotal] Instalando OpenVPN 2.4.7..." -ForegroundColor Cyan
 
-# INSTRUCAO: Substitua o link abaixo pelo link do Google Drive com o instalador
-$openvpnFileId = "1H_i2cSJJGKT4lLfqD5HYHk9sJ-k-mC01"
+$openvpnUrl = "https://github.com/igcintra/pc-setup/releases/download/v1.0/openvpn-install-2.4.7-I607-Win10.exe"
 $openvpnInstaller = "$env:TEMP\openvpn-install-2.4.7.exe"
 
 try {
-    # Google Drive requer confirmacao para arquivos grandes - usar sessao com cookie
-    $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-    $response = Invoke-WebRequest -Uri "https://drive.google.com/uc?export=download&id=$openvpnFileId" -SessionVariable session -ErrorAction Stop
-    # Buscar link de confirmacao
-    $confirmLink = $response.Links | Where-Object { $_.href -match "confirm=" } | Select-Object -First 1
-    if ($confirmLink) {
-        $downloadUrl = "https://drive.google.com$($confirmLink.href)"
-    } else {
-        # Tentar extrair token de confirmacao do HTML
-        $html = $response.Content
-        if ($html -match 'confirm=([0-9A-Za-z_-]+)') {
-            $token = $matches[1]
-            $downloadUrl = "https://drive.google.com/uc?export=download&confirm=$token&id=$openvpnFileId"
-        } else {
-            $downloadUrl = "https://drive.google.com/uc?export=download&confirm=t&id=$openvpnFileId"
-        }
-    }
-    Invoke-WebRequest -Uri $downloadUrl -OutFile $openvpnInstaller -WebSession $session -ErrorAction Stop
-
-    # Verificar que baixou o executavel e nao a pagina HTML
-    $fileSize = (Get-Item $openvpnInstaller).Length
-    if ($fileSize -lt 1MB) {
-        throw "Arquivo muito pequeno ($fileSize bytes) - provavel pagina HTML em vez do instalador"
-    }
-
+    Invoke-WebRequest -Uri $openvpnUrl -OutFile $openvpnInstaller -ErrorAction Stop
     Start-Process $openvpnInstaller -ArgumentList "/S" -Wait -ErrorAction SilentlyContinue
     Remove-Item $openvpnInstaller -Force -ErrorAction SilentlyContinue
     Write-Host "  OpenVPN 2.4.7 instalado!" -ForegroundColor Green
