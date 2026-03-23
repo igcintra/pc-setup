@@ -249,12 +249,11 @@ foreach ($prog in $programas) {
         if ($prog.fallback) {
             Write-Host " Winget falhou, baixando direto..." -ForegroundColor Yellow
             try {
-                $anydeskUrl = "https://download.anydesk.com/AnyDesk.exe"
-                $anydeskDest = "$env:ProgramFiles\AnyDesk"
-                New-Item -ItemType Directory -Path $anydeskDest -Force | Out-Null
-                Invoke-WebRequest -Uri $anydeskUrl -OutFile "$anydeskDest\AnyDesk.exe" -ErrorAction Stop
-                # Instalar o servico
-                Start-Process "$anydeskDest\AnyDesk.exe" -ArgumentList "--install `"$anydeskDest`" --start-with-win --silent" -Wait -ErrorAction SilentlyContinue
+                $anydeskMsi = "https://download.anydesk.com/AnyDesk.msi"
+                $anydeskInstaller = "$env:TEMP\AnyDesk.msi"
+                Invoke-WebRequest -Uri $anydeskMsi -OutFile $anydeskInstaller -ErrorAction Stop
+                Start-Process msiexec.exe -ArgumentList "/i `"$anydeskInstaller`" /qn /norestart" -Wait -ErrorAction SilentlyContinue
+                Remove-Item $anydeskInstaller -Force -ErrorAction SilentlyContinue
                 Write-Host " OK (download direto)" -ForegroundColor Green
                 $instalados += "$($prog.nome) - Instalado (download direto)"
             } catch {
@@ -307,22 +306,24 @@ if (Test-Path $keepassExe) {
 }
 
 # ============================================
-# [6] INSTALAR OPENVPN (versao estavel)
+# [6] INSTALAR OPENVPN 2.4.7 (versao fixa)
 # ============================================
 
-Write-Host "`n[6/$etapaTotal] Instalando OpenVPN..." -ForegroundColor Cyan
+Write-Host "`n[6/$etapaTotal] Instalando OpenVPN 2.4.7..." -ForegroundColor Cyan
 
-$resultado = winget install --id OpenVPNTechnologies.OpenVPN -e --accept-source-agreements --accept-package-agreements --silent 2>&1
+# INSTRUCAO: Substitua o link abaixo pelo link do Google Drive com o instalador
+$openvpnUrl = "LINK_DO_GOOGLE_DRIVE_AQUI"
+$openvpnInstaller = "$env:TEMP\openvpn-install-2.4.7.exe"
 
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "  OpenVPN instalado!" -ForegroundColor Green
-    $instalados += "OpenVPN - Instalado"
-} elseif ($resultado -match "already installed") {
-    Write-Host "  OpenVPN ja instalado" -ForegroundColor Gray
-    $instalados += "OpenVPN - Ja instalado"
-} else {
+try {
+    Invoke-WebRequest -Uri $openvpnUrl -OutFile $openvpnInstaller -ErrorAction Stop
+    Start-Process $openvpnInstaller -ArgumentList "/S" -Wait -ErrorAction SilentlyContinue
+    Remove-Item $openvpnInstaller -Force -ErrorAction SilentlyContinue
+    Write-Host "  OpenVPN 2.4.7 instalado!" -ForegroundColor Green
+    $instalados += "OpenVPN 2.4.7 - Instalado"
+} catch {
     Write-Host "  ERRO ao instalar OpenVPN" -ForegroundColor Red
-    $instalados += "OpenVPN - ERRO"
+    $instalados += "OpenVPN 2.4.7 - ERRO"
     $erros += "OpenVPN"
 }
 
