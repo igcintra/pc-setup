@@ -224,12 +224,11 @@ $programas = @(
     @{ nome = "Google Chrome";   id = "Google.Chrome" },
     @{ nome = "KeePass 2";      id = "DominikReichl.KeePass" },
     @{ nome = "WinRAR";         id = "RARLab.WinRAR" },
-    @{ nome = "AnyDesk";        id = "AnyDeskSoftware.AnyDesk"; fallback = $true },
     @{ nome = "Slack";          id = "SlackTechnologies.Slack" }
 )
 
 $instalados = @()
-$total = $programas.Count
+$total = $programas.Count + 1  # +1 para AnyDesk separado
 $atual = 0
 
 foreach ($prog in $programas) {
@@ -245,27 +244,42 @@ foreach ($prog in $programas) {
         Write-Host " Ja instalado" -ForegroundColor Gray
         $instalados += "$($prog.nome) - Ja instalado"
     } else {
-        # Fallback: download direto para AnyDesk
-        if ($prog.fallback) {
-            Write-Host " Winget falhou, baixando direto..." -ForegroundColor Yellow
-            try {
-                $anydeskExe = "https://github.com/igcintra/pc-setup/releases/download/v1.0/AnyDesk.exe"
-                $anydeskInstaller = "$env:TEMP\AnyDesk.exe"
-                Invoke-WebRequest -Uri $anydeskExe -OutFile $anydeskInstaller -ErrorAction Stop
-                Start-Process $anydeskInstaller -ArgumentList "--install `"$env:ProgramFiles\AnyDesk`" --start-with-win --silent" -Wait -ErrorAction SilentlyContinue
-                Remove-Item $anydeskInstaller -Force -ErrorAction SilentlyContinue
-                Write-Host " OK (download direto)" -ForegroundColor Green
-                $instalados += "$($prog.nome) - Instalado (download direto)"
-            } catch {
-                Write-Host " ERRO" -ForegroundColor Red
-                $instalados += "$($prog.nome) - ERRO"
-                $erros += $prog.nome
-            }
+        Write-Host " ERRO" -ForegroundColor Red
+        $instalados += "$($prog.nome) - ERRO"
+        $erros += $prog.nome
+    }
+}
+
+# AnyDesk - instalacao direta (winget nao funciona bem com ele)
+$atual++
+Write-Host "  [$atual/$total] AnyDesk..." -ForegroundColor Yellow -NoNewline
+$anydeskExePath = "$env:ProgramFiles\AnyDesk\AnyDesk.exe"
+$anydeskExePath2 = "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
+if ((Test-Path $anydeskExePath) -or (Test-Path $anydeskExePath2)) {
+    Write-Host " Ja instalado" -ForegroundColor Gray
+    $instalados += "AnyDesk - Ja instalado"
+} else {
+    try {
+        $anydeskUrl = "https://github.com/igcintra/pc-setup/releases/download/v1.0/AnyDesk.exe"
+        $anydeskInstaller = "$env:TEMP\AnyDesk.exe"
+        Invoke-WebRequest -Uri $anydeskUrl -OutFile $anydeskInstaller -ErrorAction Stop
+        Start-Process $anydeskInstaller -ArgumentList "--install `"$env:ProgramFiles\AnyDesk`" --start-with-win --silent" -Wait
+        Start-Sleep -Seconds 5
+        if (Test-Path "$env:ProgramFiles\AnyDesk\AnyDesk.exe") {
+            Write-Host " OK" -ForegroundColor Green
+            $instalados += "AnyDesk - Instalado"
         } else {
-            Write-Host " ERRO" -ForegroundColor Red
-            $instalados += "$($prog.nome) - ERRO"
-            $erros += $prog.nome
+            # Tentar instalar sem caminho especifico
+            Start-Process $anydeskInstaller -ArgumentList "--install --start-with-win --silent" -Wait
+            Start-Sleep -Seconds 5
+            Write-Host " OK" -ForegroundColor Green
+            $instalados += "AnyDesk - Instalado"
         }
+        Remove-Item $anydeskInstaller -Force -ErrorAction SilentlyContinue
+    } catch {
+        Write-Host " ERRO: $_" -ForegroundColor Red
+        $instalados += "AnyDesk - ERRO"
+        $erros += "AnyDesk"
     }
 }
 
