@@ -17,7 +17,7 @@ if (-not $isAdmin) {
 $desktop = [Environment]::GetFolderPath("Desktop")
 $arquivo = "$desktop\info-pc.txt"
 $data = Get-Date -Format "dd/MM/yyyy HH:mm"
-$etapaTotal = 6
+$etapaTotal = 7
 $erros = @()
 
 Write-Host ""
@@ -47,10 +47,106 @@ $discos = Get-PhysicalDisk | Select-Object MediaType, FriendlyName, @{
 Write-Host "  OK" -ForegroundColor Green
 
 # ============================================
-# [2] DESATIVAR BITLOCKER
+# [2] REMOVER BLOATWARE
 # ============================================
 
-Write-Host "`n[2/$etapaTotal] Verificando BitLocker..." -ForegroundColor Cyan
+Write-Host "`n[2/$etapaTotal] Removendo bloatware..." -ForegroundColor Cyan
+
+$bloatware = @(
+    # McAfee
+    "McAfee*",
+    # Microsoft
+    "Microsoft.OneDrive*",
+    "Microsoft.MicrosoftTeams*",
+    "MicrosoftTeams*",
+    "Microsoft.Todos*",
+    "Microsoft.MicrosoftSolitaireCollection*",
+    "Microsoft.MicrosoftOfficeHub*",
+    "Microsoft.BingNews*",
+    "Microsoft.BingWeather*",
+    "Microsoft.GetHelp*",
+    "Microsoft.Getstarted*",
+    "Microsoft.WindowsMail*",
+    "Microsoft.windowscommunicationsapps*",
+    "microsoft.windowscomm*",
+    "Microsoft.SkypeApp*",
+    "Microsoft.LinkedIn*",
+    "Microsoft.Clipchamp*",
+    "Microsoft.GamingApp*",
+    "Microsoft.XboxApp*",
+    "Microsoft.XboxGameOverlay*",
+    "Microsoft.XboxGamingOverlay*",
+    "Microsoft.XboxSpeechToTextOverlay*",
+    "Microsoft.XboxIdentityProvider*",
+    "Microsoft.Xbox.TCUI*",
+    # Terceiros
+    "SpotifyAB.SpotifyMusic*",
+    "king.com.CandyCrushSaga*",
+    "king.com.CandyCrush*",
+    "BytedancePte.Ltd.TikTok*",
+    "Facebook*",
+    "Instagram*",
+    "Disney*",
+    "Clipchamp*"
+)
+
+$removidos = @()
+
+foreach ($app in $bloatware) {
+    $pacotes = Get-AppxPackage -AllUsers -Name $app -ErrorAction SilentlyContinue
+    foreach ($pacote in $pacotes) {
+        try {
+            Remove-AppxPackage -Package $pacote.PackageFullName -AllUsers -ErrorAction Stop
+            $removidos += $pacote.Name
+            Write-Host "  Removido: $($pacote.Name)" -ForegroundColor Green
+        } catch {
+            # Tenta via provisioned package
+            Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+                Where-Object { $_.DisplayName -like $app } |
+                ForEach-Object {
+                    Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
+                    $removidos += $_.DisplayName
+                    Write-Host "  Removido (provisioned): $($_.DisplayName)" -ForegroundColor Green
+                }
+        }
+    }
+
+    # Remover provisioned packages para nao voltar em novos usuarios
+    Get-AppxProvisionedPackage -Online -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName -like $app } |
+        ForEach-Object {
+            Remove-AppxProvisionedPackage -Online -PackageName $_.PackageName -ErrorAction SilentlyContinue
+        }
+}
+
+# Remover McAfee via WMI/registry (nao e app da Store)
+$mcafee = Get-WmiObject -Class Win32_Product -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*McAfee*" }
+foreach ($m in $mcafee) {
+    $m.Uninstall() | Out-Null
+    $removidos += $m.Name
+    Write-Host "  Removido: $($m.Name)" -ForegroundColor Green
+}
+
+# Desinstalar OneDrive completamente
+$onedrivePath = "$env:SystemRoot\SysWOW64\OneDriveSetup.exe"
+if (-not (Test-Path $onedrivePath)) { $onedrivePath = "$env:SystemRoot\System32\OneDriveSetup.exe" }
+if (Test-Path $onedrivePath) {
+    Start-Process $onedrivePath -ArgumentList "/uninstall" -Wait -ErrorAction SilentlyContinue
+    Write-Host "  OneDrive desinstalado" -ForegroundColor Green
+    $removidos += "OneDrive"
+}
+
+if ($removidos.Count -eq 0) {
+    Write-Host "  Nenhum bloatware encontrado" -ForegroundColor Gray
+} else {
+    Write-Host "  $($removidos.Count) programa(s) removido(s)" -ForegroundColor Green
+}
+
+# ============================================
+# [3] DESATIVAR BITLOCKER
+# ============================================
+
+Write-Host "`n[3/$etapaTotal] Verificando BitLocker..." -ForegroundColor Cyan
 $bitlockerStatus = ""
 try {
     $volumes = Get-BitLockerVolume -ErrorAction Stop
@@ -70,10 +166,10 @@ try {
 }
 
 # ============================================
-# [3] CRIAR USUARIO ADMIN
+# [4] CRIAR USUARIO ADMIN
 # ============================================
 
-Write-Host "`n[3/$etapaTotal] Criando usuario Admin..." -ForegroundColor Cyan
+Write-Host "`n[4/$etapaTotal] Criando usuario Admin..." -ForegroundColor Cyan
 $usuarioExiste = Get-LocalUser -Name "Admin" -ErrorAction SilentlyContinue
 if ($usuarioExiste) {
     Write-Host "  Usuario 'Admin' ja existe" -ForegroundColor Yellow
@@ -94,10 +190,10 @@ if ($usuarioExiste) {
 }
 
 # ============================================
-# [4] INSTALAR PROGRAMAS (ultima versao)
+# [5] INSTALAR PROGRAMAS (ultima versao)
 # ============================================
 
-Write-Host "`n[4/$etapaTotal] Instalando programas..." -ForegroundColor Cyan
+Write-Host "`n[5/$etapaTotal] Instalando programas..." -ForegroundColor Cyan
 
 $programas = @(
     @{ nome = "Google Chrome";   id = "Google.Chrome" },
@@ -131,10 +227,10 @@ foreach ($prog in $programas) {
 }
 
 # ============================================
-# [5] INSTALAR OPENVPN (versao estavel)
+# [6] INSTALAR OPENVPN (versao estavel)
 # ============================================
 
-Write-Host "`n[5/$etapaTotal] Instalando OpenVPN..." -ForegroundColor Cyan
+Write-Host "`n[6/$etapaTotal] Instalando OpenVPN..." -ForegroundColor Cyan
 
 $resultado = winget install --id OpenVPNTechnologies.OpenVPN -e --accept-source-agreements --accept-package-agreements --silent 2>&1
 
@@ -151,10 +247,10 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # ============================================
-# [6] GERAR RELATORIO
+# [7] GERAR RELATORIO
 # ============================================
 
-Write-Host "`n[6/$etapaTotal] Gerando relatorio..." -ForegroundColor Cyan
+Write-Host "`n[7/$etapaTotal] Gerando relatorio..." -ForegroundColor Cyan
 
 $conteudo = @"
 ==========================================
@@ -182,6 +278,8 @@ $conteudo += @"
 ------------------------------------------
   CONFIGURACOES
 ------------------------------------------
+Bloatware removido: $($removidos.Count) programa(s)
+
 BitLocker:
 $bitlockerStatus
 Usuario Admin : $adminStatus
