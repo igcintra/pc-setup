@@ -320,6 +320,29 @@ try {
     Remove-Item $openvpnInstaller -Force -ErrorAction SilentlyContinue
     Write-Host "  OpenVPN 2.4.7 instalado!" -ForegroundColor Green
     $instalados += "OpenVPN 2.4.7 - Instalado"
+
+    # Ajustar atalho do OpenVPN: iniciar em config + executar como admin
+    $openvpnShortcuts = @(
+        "$desktop\OpenVPN GUI.lnk",
+        "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\OpenVPN\OpenVPN GUI.lnk",
+        "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\OpenVPN\OpenVPN GUI.lnk"
+    )
+    foreach ($lnk in $openvpnShortcuts) {
+        if (Test-Path $lnk) {
+            $shell = New-Object -ComObject WScript.Shell
+            $atalho = $shell.CreateShortcut($lnk)
+            $atalho.WorkingDirectory = "$env:ProgramFiles\OpenVPN\config"
+            $atalho.Save()
+        }
+    }
+    # Forcar executar como administrador via registro (flag byte no .lnk)
+    $lnkDesktop = "$desktop\OpenVPN GUI.lnk"
+    if (Test-Path $lnkDesktop) {
+        $bytes = [System.IO.File]::ReadAllBytes($lnkDesktop)
+        $bytes[0x15] = $bytes[0x15] -bor 0x20  # Flag "Run as Administrator"
+        [System.IO.File]::WriteAllBytes($lnkDesktop, $bytes)
+        Write-Host "  Atalho OpenVPN: config + executar como admin" -ForegroundColor Green
+    }
 } catch {
     Write-Host "  ERRO ao instalar OpenVPN: $_" -ForegroundColor Red
     $instalados += "OpenVPN 2.4.7 - ERRO"
