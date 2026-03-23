@@ -14,6 +14,12 @@ if (-not $isAdmin) {
     exit
 }
 
+# Corrigir DNS para evitar falha de resolucao de nomes
+Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | ForEach-Object {
+    Set-DnsClientServerAddress -InterfaceIndex $_.ifIndex -ServerAddresses ("8.8.8.8","8.8.4.4") -ErrorAction SilentlyContinue
+}
+Write-Host "DNS configurado (Google 8.8.8.8)" -ForegroundColor Gray
+
 $desktop = [Environment]::GetFolderPath("Desktop")
 $arquivo = "$desktop\info-pc.txt"
 $data = Get-Date -Format "dd/MM/yyyy HH:mm"
