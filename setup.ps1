@@ -250,30 +250,43 @@ foreach ($prog in $programas) {
     }
 }
 
-# AnyDesk - instalacao direta (winget nao funciona bem com ele)
+# AnyDesk - instalacao manual (winget e --install --silent nao funcionam)
 $atual++
 Write-Host "  [$atual/$total] AnyDesk..." -ForegroundColor Yellow -NoNewline
-$anydeskRodando = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
-if ($anydeskRodando) {
+$anydeskDest = "$env:ProgramFiles\AnyDesk"
+$anydeskFinal = "$anydeskDest\AnyDesk.exe"
+
+if ((Test-Path $anydeskFinal) -and (Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue)) {
     Write-Host " Ja instalado" -ForegroundColor Gray
     $instalados += "AnyDesk - Ja instalado"
 } else {
     try {
         $anydeskUrl = "https://github.com/igcintra/pc-setup/releases/download/v1.0/AnyDesk.exe"
-        $anydeskInstaller = "$env:TEMP\AnyDesk.exe"
-        Invoke-WebRequest -Uri $anydeskUrl -OutFile $anydeskInstaller -ErrorAction Stop
-        Start-Process $anydeskInstaller -ArgumentList "--install --start-with-win --silent" -Wait -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 5
-        Remove-Item $anydeskInstaller -Force -ErrorAction SilentlyContinue
-        # Verificar se instalou checando o processo
-        $anydeskRodando = Get-Process -Name "AnyDesk" -ErrorAction SilentlyContinue
-        if ($anydeskRodando) {
-            Write-Host " OK" -ForegroundColor Green
-            $instalados += "AnyDesk - Instalado"
-        } else {
-            Write-Host " OK (pode precisar abrir manualmente)" -ForegroundColor Yellow
-            $instalados += "AnyDesk - Instalado"
-        }
+        $anydeskTemp = "$env:TEMP\AnyDesk.exe"
+        Invoke-WebRequest -Uri $anydeskUrl -OutFile $anydeskTemp -ErrorAction Stop
+
+        # Copiar para Program Files
+        New-Item -ItemType Directory -Path $anydeskDest -Force | Out-Null
+        Copy-Item $anydeskTemp $anydeskFinal -Force
+        Remove-Item $anydeskTemp -Force -ErrorAction SilentlyContinue
+
+        # Criar atalho no desktop
+        $shell = New-Object -ComObject WScript.Shell
+        $atalho = $shell.CreateShortcut("$desktop\AnyDesk.lnk")
+        $atalho.TargetPath = $anydeskFinal
+        $atalho.WorkingDirectory = $anydeskDest
+        $atalho.Save()
+
+        # Registrar para iniciar com Windows
+        $regKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+        Set-ItemProperty -Path $regKey -Name "AnyDesk" -Value "`"$anydeskFinal`"" -ErrorAction SilentlyContinue
+
+        # Iniciar AnyDesk agora
+        Start-Process $anydeskFinal
+        Start-Sleep -Seconds 3
+
+        Write-Host " OK" -ForegroundColor Green
+        $instalados += "AnyDesk - Instalado"
     } catch {
         Write-Host " ERRO: $_" -ForegroundColor Red
         $instalados += "AnyDesk - ERRO"
@@ -333,28 +346,27 @@ try {
     Write-Host "  OpenVPN 2.4.7 instalado!" -ForegroundColor Green
     $instalados += "OpenVPN 2.4.7 - Instalado"
 
-    # Ajustar atalho do OpenVPN: iniciar em config + executar como admin
+    # Ajustar TODOS os atalhos do OpenVPN: iniciar em config + executar como admin
     $openvpnShortcuts = @(
+        "$env:PUBLIC\Desktop\OpenVPN GUI.lnk",
         "$desktop\OpenVPN GUI.lnk",
-        "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\OpenVPN\OpenVPN GUI.lnk",
-        "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\OpenVPN\OpenVPN GUI.lnk"
+        "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\OpenVPN\OpenVPN GUI.lnk"
     )
     foreach ($lnk in $openvpnShortcuts) {
         if (Test-Path $lnk) {
+            # Mudar "Iniciar em" para config
             $shell = New-Object -ComObject WScript.Shell
             $atalho = $shell.CreateShortcut($lnk)
             $atalho.WorkingDirectory = "$env:ProgramFiles\OpenVPN\config"
             $atalho.Save()
+            # Forcar executar como administrador (flag byte no .lnk)
+            $bytes = [System.IO.File]::ReadAllBytes($lnk)
+            $bytes[0x15] = $bytes[0x15] -bor 0x20
+            [System.IO.File]::WriteAllBytes($lnk, $bytes)
+            Write-Host "  Atalho ajustado: $lnk" -ForegroundColor Green
         }
     }
-    # Forcar executar como administrador via registro (flag byte no .lnk)
-    $lnkDesktop = "$desktop\OpenVPN GUI.lnk"
-    if (Test-Path $lnkDesktop) {
-        $bytes = [System.IO.File]::ReadAllBytes($lnkDesktop)
-        $bytes[0x15] = $bytes[0x15] -bor 0x20  # Flag "Run as Administrator"
-        [System.IO.File]::WriteAllBytes($lnkDesktop, $bytes)
-        Write-Host "  Atalho OpenVPN: config + executar como admin" -ForegroundColor Green
-    }
+    Write-Host "  OpenVPN: config + executar como admin" -ForegroundColor Green
 } catch {
     Write-Host "  ERRO ao instalar OpenVPN: $_" -ForegroundColor Red
     $instalados += "OpenVPN 2.4.7 - ERRO"
