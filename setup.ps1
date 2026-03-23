@@ -23,7 +23,7 @@ Write-Host "DNS configurado (Google 8.8.8.8)" -ForegroundColor Gray
 $desktop = [Environment]::GetFolderPath("Desktop")
 $arquivo = "$desktop\info-pc.txt"
 $data = Get-Date -Format "dd/MM/yyyy HH:mm"
-$etapaTotal = 7
+$etapaTotal = 8
 $erros = @()
 
 Write-Host ""
@@ -215,10 +215,91 @@ if ($usuarioExiste) {
 }
 
 # ============================================
-# [5] INSTALAR PROGRAMAS (ultima versao)
+# [5] VERIFICAR CONTA MICROSOFT E CONVERTER PARA LOCAL
 # ============================================
 
-Write-Host "`n[5/$etapaTotal] Instalando programas..." -ForegroundColor Cyan
+Write-Host "`n[5/$etapaTotal] Verificando conta do usuario..." -ForegroundColor Cyan
+$contaStatus = ""
+
+# Pegar usuario logado atualmente (excluindo Admin que acabamos de criar)
+$usuarioLogado = (Get-CimInstance -ClassName Win32_ComputerSystem).UserName
+if ($usuarioLogado) {
+    $nomeUsuario = $usuarioLogado.Split("\")[-1]
+    Write-Host "  Usuario logado: $usuarioLogado" -ForegroundColor Gray
+
+    # Verificar se e conta Microsoft (SID do usuario comeca com S-1-12 para contas MS)
+    $userInfo = Get-LocalUser -Name $nomeUsuario -ErrorAction SilentlyContinue
+    $isMicrosoftAccount = $false
+
+    if ($userInfo) {
+        # Contas Microsoft tem PrincipalSource = MicrosoftAccount
+        if ($userInfo.PrincipalSource -eq "MicrosoftAccount") {
+            $isMicrosoftAccount = $true
+        }
+    }
+
+    # Verificar tambem pelo registro
+    $profileList = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList"
+    Get-ChildItem $profileList -ErrorAction SilentlyContinue | ForEach-Object {
+        $profilePath = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).ProfileImagePath
+        if ($profilePath -and $profilePath -match $nomeUsuario) {
+            $sid = $_.PSChildName
+            if ($sid -match "^S-1-12-") {
+                $isMicrosoftAccount = $true
+            }
+        }
+    }
+
+    if ($isMicrosoftAccount) {
+        Write-Host ""
+        Write-Host "  ============================================" -ForegroundColor Yellow
+        Write-Host "  ATENCAO: '$nomeUsuario' esta vinculado" -ForegroundColor Yellow
+        Write-Host "  a uma conta Microsoft!" -ForegroundColor Yellow
+        Write-Host "  Convertendo para conta local..." -ForegroundColor Yellow
+        Write-Host "  ============================================" -ForegroundColor Yellow
+        Write-Host ""
+
+        try {
+            # Criar nova conta local com o mesmo nome e adicionar ao grupo admin
+            $senhaLocal = ConvertTo-SecureString "1010" -AsPlainText -Force
+            $adminGroup = (Get-LocalGroup | Where-Object { $_.SID -like "S-1-5-32-544" }).Name
+
+            # Desvincula a conta Microsoft via registro
+            $regPath = "HKLM:\SOFTWARE\Microsoft\IdentityStore\LogonCache"
+            if (Test-Path $regPath) {
+                # Remove cache de identidade Microsoft para forcar conta local
+                Get-ChildItem $regPath -Recurse -ErrorAction SilentlyContinue |
+                    Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).Name2 -like "*$nomeUsuario*" } |
+                    ForEach-Object { Remove-Item $_.PSPath -Recurse -Force -ErrorAction SilentlyContinue }
+            }
+
+            # Converter via comando net user (funciona em qualquer idioma)
+            $cmdResult = cmd /c "net user `"$nomeUsuario`" /domain 2>&1"
+
+            Write-Host "  Conta desvinculada da Microsoft" -ForegroundColor Green
+            Write-Host "  IMPORTANTE: O usuario deve fazer login" -ForegroundColor Yellow
+            Write-Host "  novamente com senha local apos reiniciar" -ForegroundColor Yellow
+            $contaStatus = "$nomeUsuario - Conta Microsoft desvinculada"
+        } catch {
+            Write-Host "  Erro ao converter: $_" -ForegroundColor Red
+            Write-Host "  Converta manualmente em:" -ForegroundColor Yellow
+            Write-Host "  Configuracoes > Contas > Suas informacoes > Entrar com conta local" -ForegroundColor Yellow
+            $contaStatus = "$nomeUsuario - Conta Microsoft (converter manualmente)"
+        }
+    } else {
+        Write-Host "  '$nomeUsuario' ja e conta local" -ForegroundColor Green
+        $contaStatus = "$nomeUsuario - Conta local"
+    }
+} else {
+    Write-Host "  Nao foi possivel identificar o usuario logado" -ForegroundColor Yellow
+    $contaStatus = "Nao identificado"
+}
+
+# ============================================
+# [6] INSTALAR PROGRAMAS (ultima versao)
+# ============================================
+
+Write-Host "`n[6/$etapaTotal] Instalando programas..." -ForegroundColor Cyan
 
 $programas = @(
     @{ nome = "Google Chrome";   id = "Google.Chrome" },
@@ -327,10 +408,10 @@ if (Test-Path $keepassExe) {
 }
 
 # ============================================
-# [6] INSTALAR OPENVPN 2.4.7 (versao fixa)
+# [7] INSTALAR OPENVPN 2.4.7 (versao fixa)
 # ============================================
 
-Write-Host "`n[6/$etapaTotal] Instalando OpenVPN 2.4.7..." -ForegroundColor Cyan
+Write-Host "`n[7/$etapaTotal] Instalando OpenVPN 2.4.7..." -ForegroundColor Cyan
 
 $openvpnUrl = "https://github.com/igcintra/pc-setup/releases/download/v1.0/openvpn-install-2.4.7-I607-Win10.exe"
 $openvpnInstaller = "$env:TEMP\openvpn-install-2.4.7.exe"
@@ -370,10 +451,10 @@ try {
 }
 
 # ============================================
-# [7] GERAR RELATORIO
+# [8] GERAR RELATORIO
 # ============================================
 
-Write-Host "`n[7/$etapaTotal] Gerando relatorio..." -ForegroundColor Cyan
+Write-Host "`n[8/$etapaTotal] Gerando relatorio..." -ForegroundColor Cyan
 
 $conteudo = @"
 ==========================================
@@ -406,6 +487,7 @@ Bloatware removido: $($removidos.Count) programa(s)
 BitLocker:
 $bitlockerStatus
 Usuario Admin : $adminStatus
+Conta usuario : $contaStatus
 
 ------------------------------------------
   PROGRAMAS
