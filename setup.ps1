@@ -270,6 +270,30 @@ foreach ($prog in $programas) {
     }
 }
 
+# Definir Chrome como navegador padrao
+$chromePath = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+if (-not (Test-Path $chromePath)) { $chromePath = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe" }
+if (Test-Path $chromePath) {
+    Write-Host "  Configurando Chrome como navegador padrao..." -ForegroundColor Yellow
+    $regBase = "HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations"
+    $protocols = @("http", "https")
+    foreach ($proto in $protocols) {
+        $regPath = "$regBase\$proto\UserChoice"
+        Remove-Item -Path $regPath -Force -ErrorAction SilentlyContinue
+        New-Item -Path $regPath -Force -ErrorAction SilentlyContinue | Out-Null
+        Set-ItemProperty -Path $regPath -Name "ProgId" -Value "ChromeHTML" -ErrorAction SilentlyContinue
+    }
+    # Associar extensoes de arquivo
+    $fileTypes = @(".htm", ".html", ".shtml", ".xhtml")
+    foreach ($ext in $fileTypes) {
+        $regPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\$ext\UserChoice"
+        Remove-Item -Path $regPath -Force -ErrorAction SilentlyContinue
+        New-Item -Path $regPath -Force -ErrorAction SilentlyContinue | Out-Null
+        Set-ItemProperty -Path $regPath -Name "ProgId" -Value "ChromeHTML" -ErrorAction SilentlyContinue
+    }
+    Write-Host "  Chrome definido como navegador padrao" -ForegroundColor Green
+}
+
 # Criar atalho do KeePass 2 na Area de Trabalho
 $keepassExe = "${env:ProgramFiles(x86)}\KeePass Password Safe 2\KeePass.exe"
 if (-not (Test-Path $keepassExe)) { $keepassExe = "$env:ProgramFiles\KeePass Password Safe 2\KeePass.exe" }
