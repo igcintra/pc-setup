@@ -65,6 +65,8 @@ $bloatware = @(
     "Microsoft.OneDrive*",
     "Microsoft.MicrosoftTeams*",
     "MicrosoftTeams*",
+    "MSTeams*",
+    "Microsoft.Teams*",
     "Microsoft.Todos*",
     "Microsoft.MicrosoftSolitaireCollection*",
     "Microsoft.MicrosoftOfficeHub*",
@@ -134,12 +136,29 @@ foreach ($m in $mcafee) {
 }
 
 # Desinstalar OneDrive completamente
+Stop-Process -Name "OneDrive" -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
 $onedrivePath = "$env:SystemRoot\SysWOW64\OneDriveSetup.exe"
 if (-not (Test-Path $onedrivePath)) { $onedrivePath = "$env:SystemRoot\System32\OneDriveSetup.exe" }
 if (Test-Path $onedrivePath) {
     Start-Process $onedrivePath -ArgumentList "/uninstall" -Wait -ErrorAction SilentlyContinue
     Write-Host "  OneDrive desinstalado" -ForegroundColor Green
     $removidos += "OneDrive"
+}
+# Remover via winget tambem
+winget uninstall --id Microsoft.OneDrive -e --silent 2>&1 | Out-Null
+
+# Desinstalar Teams completamente (Win 10 e 11)
+Stop-Process -Name "ms-teams" -Force -ErrorAction SilentlyContinue
+Stop-Process -Name "Teams" -Force -ErrorAction SilentlyContinue
+winget uninstall --id Microsoft.Teams -e --silent 2>&1 | Out-Null
+winget uninstall --name "Microsoft Teams" --silent 2>&1 | Out-Null
+# Teams classico
+$teamsPath = "$env:LOCALAPPDATA\Microsoft\Teams\Update.exe"
+if (Test-Path $teamsPath) {
+    Start-Process $teamsPath -ArgumentList "--uninstall -s" -Wait -ErrorAction SilentlyContinue
+    Write-Host "  Teams desinstalado" -ForegroundColor Green
+    $removidos += "Teams"
 }
 
 if ($removidos.Count -eq 0) {
@@ -205,7 +224,7 @@ $programas = @(
     @{ nome = "Google Chrome";   id = "Google.Chrome" },
     @{ nome = "KeePass 2";      id = "DominikReichl.KeePass" },
     @{ nome = "WinRAR";         id = "RARLab.WinRAR" },
-    @{ nome = "AnyDesk";        id = "AnyDeskSoftware.AnyDesk" },
+    @{ nome = "AnyDesk";        id = "AnyDeskSoftware.AnyDesk"; fallback = $true },
     @{ nome = "Slack";          id = "SlackTechnologies.Slack" }
 )
 
@@ -226,10 +245,41 @@ foreach ($prog in $programas) {
         Write-Host " Ja instalado" -ForegroundColor Gray
         $instalados += "$($prog.nome) - Ja instalado"
     } else {
-        Write-Host " ERRO" -ForegroundColor Red
-        $instalados += "$($prog.nome) - ERRO"
-        $erros += $prog.nome
+        # Fallback: download direto para AnyDesk
+        if ($prog.fallback) {
+            Write-Host " Winget falhou, baixando direto..." -ForegroundColor Yellow
+            try {
+                $anydeskUrl = "https://download.anydesk.com/AnyDesk.exe"
+                $anydeskDest = "$env:ProgramFiles\AnyDesk"
+                New-Item -ItemType Directory -Path $anydeskDest -Force | Out-Null
+                Invoke-WebRequest -Uri $anydeskUrl -OutFile "$anydeskDest\AnyDesk.exe" -ErrorAction Stop
+                # Instalar o servico
+                Start-Process "$anydeskDest\AnyDesk.exe" -ArgumentList "--install `"$anydeskDest`" --start-with-win --silent" -Wait -ErrorAction SilentlyContinue
+                Write-Host " OK (download direto)" -ForegroundColor Green
+                $instalados += "$($prog.nome) - Instalado (download direto)"
+            } catch {
+                Write-Host " ERRO" -ForegroundColor Red
+                $instalados += "$($prog.nome) - ERRO"
+                $erros += $prog.nome
+            }
+        } else {
+            Write-Host " ERRO" -ForegroundColor Red
+            $instalados += "$($prog.nome) - ERRO"
+            $erros += $prog.nome
+        }
     }
+}
+
+# Criar atalho do KeePass 2 na Area de Trabalho
+$keepassExe = "${env:ProgramFiles(x86)}\KeePass Password Safe 2\KeePass.exe"
+if (-not (Test-Path $keepassExe)) { $keepassExe = "$env:ProgramFiles\KeePass Password Safe 2\KeePass.exe" }
+if (Test-Path $keepassExe) {
+    $shell = New-Object -ComObject WScript.Shell
+    $atalho = $shell.CreateShortcut("$desktop\KeePass 2.lnk")
+    $atalho.TargetPath = $keepassExe
+    $atalho.WorkingDirectory = (Split-Path $keepassExe)
+    $atalho.Save()
+    Write-Host "  Atalho KeePass 2 criado na Area de Trabalho" -ForegroundColor Green
 }
 
 # ============================================
