@@ -473,7 +473,24 @@ try {
         Set-ItemProperty -Path $regSugest -Name "SubscribedContent-338388Enabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
         Set-ItemProperty -Path $regSugest -Name "SoftLandingEnabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
     }
-    Write-Host "  Notificacoes desativadas" -ForegroundColor Green
+
+    $regWPN = "HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications"
+    Set-ItemProperty -Path $regWPN -Name "DatabaseMigrationCompleted" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+
+    $regNotifSettings = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings"
+    if (-not (Test-Path $regNotifSettings)) { New-Item -Path $regNotifSettings -Force | Out-Null }
+    Set-ItemProperty -Path $regNotifSettings -Name "NOC_GLOBAL_SETTING_TOASTS_ENABLED" -Value 0 -Type DWord
+
+    $regPolicy = "HKCU:\Software\Policies\Microsoft\Windows\CurrentVersion\PushNotifications"
+    if (-not (Test-Path $regPolicy)) { New-Item -Path $regPolicy -Force | Out-Null }
+    Set-ItemProperty -Path $regPolicy -Name "NoToastApplicationNotification" -Value 1 -Type DWord
+
+    $regTips = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent"
+    if (-not (Test-Path $regTips)) { New-Item -Path $regTips -Force | Out-Null }
+    Set-ItemProperty -Path $regTips -Name "DisableSoftLanding" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $regTips -Name "DisableWindowsConsumerFeatures" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+
+    Write-Host "  Todas as notificacoes desativadas" -ForegroundColor Green
 } catch {
     Write-Host "  ERRO" -ForegroundColor Red
 }
@@ -485,39 +502,45 @@ try {
 Write-Host "`n[9/$etapaTotal] Configurando barra de tarefas..." -ForegroundColor Cyan
 
 try {
-    $taskbandPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband"
-    Remove-Item -Path $taskbandPath -Force -Recurse -ErrorAction SilentlyContinue
-    New-Item -Path $taskbandPath -Force | Out-Null
-
     $regAdvanced = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
     Set-ItemProperty -Path $regAdvanced -Name "ShowTaskViewButton" -Value 0 -Type DWord -ErrorAction SilentlyContinue
     Set-ItemProperty -Path $regAdvanced -Name "TaskbarDa" -Value 0 -Type DWord -ErrorAction SilentlyContinue
     Set-ItemProperty -Path $regAdvanced -Name "TaskbarMn" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $regAdvanced -Name "ShowCortanaButton" -Value 0 -Type DWord -ErrorAction SilentlyContinue
 
     $regSearch = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search"
     if (-not (Test-Path $regSearch)) { New-Item -Path $regSearch -Force | Out-Null }
     Set-ItemProperty -Path $regSearch -Name "SearchboxTaskbarMode" -Value 0 -Type DWord
 
+    $regCortana = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
+    if (-not (Test-Path $regCortana)) { New-Item -Path $regCortana -Force | Out-Null }
+    Set-ItemProperty -Path $regCortana -Name "AllowCortana" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+
     $pinDir = "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
+    if (Test-Path $pinDir) { Remove-Item "$pinDir\*" -Force -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Path $pinDir -Force | Out-Null
+
+    $taskbandPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband"
+    Remove-Item -Path $taskbandPath -Force -Recurse -ErrorAction SilentlyContinue
+    New-Item -Path $taskbandPath -Force | Out-Null
 
     # Chrome
     $chromePath = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
     if (-not (Test-Path $chromePath)) { $chromePath = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe" }
     if (Test-Path $chromePath) {
         $shell = New-Object -ComObject WScript.Shell
-        $atalho = $shell.CreateShortcut("$pinDir\Google Chrome.lnk")
+        $atalho = $shell.CreateShortcut("$pinDir\01-Google Chrome.lnk")
         $atalho.TargetPath = $chromePath
         $atalho.Save()
     }
 
     # Explorador de Arquivos
     $shell = New-Object -ComObject WScript.Shell
-    $atalho = $shell.CreateShortcut("$pinDir\Explorador de Arquivos.lnk")
+    $atalho = $shell.CreateShortcut("$pinDir\02-Explorador de Arquivos.lnk")
     $atalho.TargetPath = "explorer.exe"
     $atalho.Save()
 
-    Write-Host "  Barra de tarefas configurada (Chrome, Explorador)" -ForegroundColor Green
+    Write-Host "  Barra limpa e configurada (Chrome, Explorador)" -ForegroundColor Green
 } catch {
     Write-Host "  ERRO" -ForegroundColor Red
 }
