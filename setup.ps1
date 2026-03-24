@@ -23,7 +23,7 @@ Write-Host "DNS configurado (Google 8.8.8.8)" -ForegroundColor Gray
 $desktop = [Environment]::GetFolderPath("Desktop")
 $arquivo = "$desktop\info-pc.txt"
 $data = Get-Date -Format "dd/MM/yyyy HH:mm"
-$etapaTotal = 8
+$etapaTotal = 11
 $erros = @()
 
 Write-Host ""
@@ -447,10 +447,139 @@ Write-Host ""
 Write-Host $conteudo
 
 # ============================================
-# [8] VERIFICAR CONTA MICROSOFT E CONVERTER PARA LOCAL
+# [8] DESATIVAR NOTIFICACOES DO WINDOWS
 # ============================================
 
-Write-Host "`n[8/$etapaTotal] Verificando conta do usuario..." -ForegroundColor Cyan
+Write-Host "`n[8/$etapaTotal] Desativando notificacoes..." -ForegroundColor Cyan
+
+try {
+    $regNotif = "HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications"
+    if (-not (Test-Path $regNotif)) { New-Item -Path $regNotif -Force | Out-Null }
+    Set-ItemProperty -Path $regNotif -Name "ToastEnabled" -Value 0 -Type DWord
+
+    $regAction = "HKCU:\Software\Policies\Microsoft\Windows\Explorer"
+    if (-not (Test-Path $regAction)) { New-Item -Path $regAction -Force | Out-Null }
+    Set-ItemProperty -Path $regAction -Name "DisableNotificationCenter" -Value 1 -Type DWord
+
+    $regLock = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings"
+    if (-not (Test-Path $regLock)) { New-Item -Path $regLock -Force | Out-Null }
+    Set-ItemProperty -Path $regLock -Name "NOC_GLOBAL_SETTING_ALLOW_NOTIFICATION_SOUND" -Value 0 -Type DWord
+    Set-ItemProperty -Path $regLock -Name "NOC_GLOBAL_SETTING_ALLOW_TOASTS_ABOVE_LOCK" -Value 0 -Type DWord
+
+    $regSugest = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
+    if (Test-Path $regSugest) {
+        Set-ItemProperty -Path $regSugest -Name "SubscribedContent-338389Enabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $regSugest -Name "SubscribedContent-310093Enabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $regSugest -Name "SubscribedContent-338388Enabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $regSugest -Name "SoftLandingEnabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+    }
+    Write-Host "  Notificacoes desativadas" -ForegroundColor Green
+} catch {
+    Write-Host "  ERRO" -ForegroundColor Red
+}
+
+# ============================================
+# [9] LIMPAR BARRA DE TAREFAS E FIXAR PROGRAMAS
+# ============================================
+
+Write-Host "`n[9/$etapaTotal] Configurando barra de tarefas..." -ForegroundColor Cyan
+
+try {
+    $taskbandPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband"
+    Remove-Item -Path $taskbandPath -Force -Recurse -ErrorAction SilentlyContinue
+    New-Item -Path $taskbandPath -Force | Out-Null
+
+    $regAdvanced = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+    Set-ItemProperty -Path $regAdvanced -Name "ShowTaskViewButton" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $regAdvanced -Name "TaskbarDa" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $regAdvanced -Name "TaskbarMn" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+
+    $regSearch = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search"
+    if (-not (Test-Path $regSearch)) { New-Item -Path $regSearch -Force | Out-Null }
+    Set-ItemProperty -Path $regSearch -Name "SearchboxTaskbarMode" -Value 0 -Type DWord
+
+    $pinDir = "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
+    New-Item -ItemType Directory -Path $pinDir -Force | Out-Null
+
+    # Chrome
+    $chromePath = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+    if (-not (Test-Path $chromePath)) { $chromePath = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe" }
+    if (Test-Path $chromePath) {
+        $shell = New-Object -ComObject WScript.Shell
+        $atalho = $shell.CreateShortcut("$pinDir\Google Chrome.lnk")
+        $atalho.TargetPath = $chromePath
+        $atalho.Save()
+    }
+
+    # Explorador de Arquivos
+    $shell = New-Object -ComObject WScript.Shell
+    $atalho = $shell.CreateShortcut("$pinDir\Explorador de Arquivos.lnk")
+    $atalho.TargetPath = "explorer.exe"
+    $atalho.Save()
+
+    Write-Host "  Barra de tarefas configurada (Chrome, Explorador)" -ForegroundColor Green
+} catch {
+    Write-Host "  ERRO" -ForegroundColor Red
+}
+
+# ============================================
+# [10] REMOVER AUTO-INICIO DE PROGRAMAS
+# ============================================
+
+Write-Host "`n[10/$etapaTotal] Removendo programas do inicio automatico..." -ForegroundColor Cyan
+
+$autoStartRemove = @("Discord", "Steam", "Opera", "Spotify", "Microsoft Edge", "Teams", "Slack", "Chrome", "KeePass")
+
+$regRun = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+if (Test-Path $regRun) {
+    $entries = Get-ItemProperty $regRun -ErrorAction SilentlyContinue
+    foreach ($prop in $entries.PSObject.Properties) {
+        if ($prop.Name -match "PS" -or $prop.Name -eq "(default)") { continue }
+        foreach ($pattern in $autoStartRemove) {
+            if ($prop.Name -like "*$pattern*" -or $prop.Value -like "*$pattern*") {
+                Remove-ItemProperty -Path $regRun -Name $prop.Name -ErrorAction SilentlyContinue
+                Write-Host "  Removido: $($prop.Name)" -ForegroundColor Green
+            }
+        }
+    }
+}
+
+$regRunLM = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
+if (Test-Path $regRunLM) {
+    $entries = Get-ItemProperty $regRunLM -ErrorAction SilentlyContinue
+    foreach ($prop in $entries.PSObject.Properties) {
+        if ($prop.Name -match "PS" -or $prop.Name -eq "(default)") { continue }
+        foreach ($pattern in $autoStartRemove) {
+            if ($prop.Name -like "*$pattern*" -or $prop.Value -like "*$pattern*") {
+                Remove-ItemProperty -Path $regRunLM -Name $prop.Name -ErrorAction SilentlyContinue
+                Write-Host "  Removido: $($prop.Name)" -ForegroundColor Green
+            }
+        }
+    }
+}
+
+$startupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
+if (Test-Path $startupFolder) {
+    Get-ChildItem $startupFolder -ErrorAction SilentlyContinue | ForEach-Object {
+        if ($_.Name -notlike "*AnyDesk*") {
+            Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+            Write-Host "  Removido: $($_.Name)" -ForegroundColor Green
+        }
+    }
+}
+
+Write-Host "  Auto-inicio limpo (AnyDesk mantido)" -ForegroundColor Green
+
+# Reiniciar Explorer para aplicar mudancas
+Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 2
+Start-Process "explorer.exe"
+
+# ============================================
+# [11] VERIFICAR CONTA MICROSOFT E CONVERTER PARA LOCAL
+# ============================================
+
+Write-Host "`n[11/$etapaTotal] Verificando conta do usuario..." -ForegroundColor Cyan
 
 $usuarioLogado = (Get-CimInstance -ClassName Win32_ComputerSystem).UserName
 if ($usuarioLogado) {
