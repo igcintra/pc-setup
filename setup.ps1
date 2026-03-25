@@ -585,23 +585,17 @@ try {
     Remove-Item -Path $taskbandPath -Force -Recurse -ErrorAction SilentlyContinue
     New-Item -Path $taskbandPath -Force | Out-Null
 
-    # Chrome
-    $chromePath = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
-    if (-not (Test-Path $chromePath)) { $chromePath = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe" }
-    if (Test-Path $chromePath) {
-        $shell = New-Object -ComObject WScript.Shell
-        $atalho = $shell.CreateShortcut("$pinDir\01-Google Chrome.lnk")
-        $atalho.TargetPath = $chromePath
-        $atalho.Save()
-    }
+    # Desafixar Microsoft Edge e Microsoft Store da barra
+    $regPins = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins"
+    Remove-Item -Path $regPins -Force -Recurse -ErrorAction SilentlyContinue
 
-    # Explorador de Arquivos
+    # Explorador de Arquivos (unico item fixado)
     $shell = New-Object -ComObject WScript.Shell
-    $atalho = $shell.CreateShortcut("$pinDir\02-Explorador de Arquivos.lnk")
+    $atalho = $shell.CreateShortcut("$pinDir\01-Explorador de Arquivos.lnk")
     $atalho.TargetPath = "explorer.exe"
     $atalho.Save()
 
-    Write-Host "  Barra limpa e configurada (Chrome, Explorador)" -ForegroundColor Green
+    Write-Host "  Barra limpa (apenas Explorador de Arquivos)" -ForegroundColor Green
 } catch {
     Write-Host "  ERRO" -ForegroundColor Red
 }
