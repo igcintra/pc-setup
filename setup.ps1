@@ -487,19 +487,23 @@ Write-Host $conteudo
 Write-Host "`n[8/$etapaTotal] Desativando notificacoes..." -ForegroundColor Cyan
 
 try {
+    # Desativar toasts (baloes popup) mas MANTER sons dos apps
     $regNotif = "HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications"
     if (-not (Test-Path $regNotif)) { New-Item -Path $regNotif -Force | Out-Null }
     Set-ItemProperty -Path $regNotif -Name "ToastEnabled" -Value 0 -Type DWord
 
+    # Desativar Central de Notificacoes (painel lateral)
     $regAction = "HKCU:\Software\Policies\Microsoft\Windows\Explorer"
     if (-not (Test-Path $regAction)) { New-Item -Path $regAction -Force | Out-Null }
     Set-ItemProperty -Path $regAction -Name "DisableNotificationCenter" -Value 1 -Type DWord
 
+    # Desativar toasts na tela de bloqueio, mas MANTER som
     $regLock = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings"
     if (-not (Test-Path $regLock)) { New-Item -Path $regLock -Force | Out-Null }
-    Set-ItemProperty -Path $regLock -Name "NOC_GLOBAL_SETTING_ALLOW_NOTIFICATION_SOUND" -Value 0 -Type DWord
+    Set-ItemProperty -Path $regLock -Name "NOC_GLOBAL_SETTING_ALLOW_NOTIFICATION_SOUND" -Value 1 -Type DWord
     Set-ItemProperty -Path $regLock -Name "NOC_GLOBAL_SETTING_ALLOW_TOASTS_ABOVE_LOCK" -Value 0 -Type DWord
 
+    # Desativar sugestoes e dicas do Windows
     $regSugest = "HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager"
     if (Test-Path $regSugest) {
         Set-ItemProperty -Path $regSugest -Name "SubscribedContent-338389Enabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
@@ -508,23 +512,23 @@ try {
         Set-ItemProperty -Path $regSugest -Name "SoftLandingEnabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
     }
 
-    $regWPN = "HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications"
-    Set-ItemProperty -Path $regWPN -Name "DatabaseMigrationCompleted" -Value 1 -Type DWord -ErrorAction SilentlyContinue
-
+    # Desativar toasts visuais mas manter som
     $regNotifSettings = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings"
     if (-not (Test-Path $regNotifSettings)) { New-Item -Path $regNotifSettings -Force | Out-Null }
     Set-ItemProperty -Path $regNotifSettings -Name "NOC_GLOBAL_SETTING_TOASTS_ENABLED" -Value 0 -Type DWord
 
+    # Bloquear toasts via politica
     $regPolicy = "HKCU:\Software\Policies\Microsoft\Windows\CurrentVersion\PushNotifications"
     if (-not (Test-Path $regPolicy)) { New-Item -Path $regPolicy -Force | Out-Null }
     Set-ItemProperty -Path $regPolicy -Name "NoToastApplicationNotification" -Value 1 -Type DWord
 
+    # Desativar Windows Tips/Sugestoes/Consumer Features
     $regTips = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent"
     if (-not (Test-Path $regTips)) { New-Item -Path $regTips -Force | Out-Null }
     Set-ItemProperty -Path $regTips -Name "DisableSoftLanding" -Value 1 -Type DWord -ErrorAction SilentlyContinue
     Set-ItemProperty -Path $regTips -Name "DisableWindowsConsumerFeatures" -Value 1 -Type DWord -ErrorAction SilentlyContinue
 
-    Write-Host "  Todas as notificacoes desativadas" -ForegroundColor Green
+    Write-Host "  Toasts desativados (sons mantidos)" -ForegroundColor Green
 } catch {
     Write-Host "  ERRO" -ForegroundColor Red
 }
