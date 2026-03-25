@@ -20,6 +20,9 @@ Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | ForEach-Object {
 }
 Write-Host "DNS configurado (Google 8.8.8.8)" -ForegroundColor Gray
 
+# Contador de uso
+Invoke-RestMethod -Uri "https://script.google.com/a/macros/ignetworks.com/s/AKfycbwt3WtOgyWIj-EBXPSbhji7uMKhUt2A3yOZT2igyvHKYioOtWvBsrCb_CP2-4Ah7qc/exec?script=pc-setup" -ErrorAction SilentlyContinue | Out-Null
+
 $desktop = [Environment]::GetFolderPath("Desktop")
 $arquivo = "$desktop\info-pc.txt"
 $data = Get-Date -Format "dd/MM/yyyy HH:mm"
