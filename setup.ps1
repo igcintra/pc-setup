@@ -516,6 +516,46 @@ try {
     if (-not (Test-Path $regCortana)) { New-Item -Path $regCortana -Force | Out-Null }
     Set-ItemProperty -Path $regCortana -Name "AllowCortana" -Value 0 -Type DWord -ErrorAction SilentlyContinue
 
+    # Remover Noticias e Interesses / Tempo (Win 10)
+    try {
+        $regFeeds = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Feeds"
+        New-Item -Path $regFeeds -Force -ErrorAction SilentlyContinue | Out-Null
+        New-ItemProperty -Path $regFeeds -Name "ShellFeedsTaskbarViewMode" -Value 2 -PropertyType DWord -Force -ErrorAction SilentlyContinue | Out-Null
+        New-ItemProperty -Path $regFeeds -Name "IsFeedsAvailable" -Value 0 -PropertyType DWord -Force -ErrorAction SilentlyContinue | Out-Null
+    } catch { }
+
+    # Remover Widgets (Win 11) via politica
+    $regWidgets = "HKLM:\SOFTWARE\Policies\Microsoft\Dsh"
+    if (-not (Test-Path $regWidgets)) { New-Item -Path $regWidgets -Force | Out-Null }
+    Set-ItemProperty -Path $regWidgets -Name "AllowNewsAndInterests" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+
+    # ---- LIMPAR MENU INICIAR (tiles/pins) ----
+
+    # Win 10: Remover todos os tiles do Menu Iniciar
+    $startTiles = (New-Object -Com Shell.Application).NameSpace('shell:::{4234d49b-0245-4df3-b780-3893943456e1}')
+    if ($startTiles) {
+        $startTiles.Items() | ForEach-Object {
+            $_.Verbs() | Where-Object { $_.Name -match "Unpin|Desafixar|Desanclar" } | ForEach-Object { $_.DoIt() }
+        }
+    }
+
+    # Win 10/11: Limpar cache de tiles do registro
+    $startCachePath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\CloudStore\Store\Cache\DefaultAccount"
+    if (Test-Path $startCachePath) {
+        Get-ChildItem $startCachePath -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match "start\.tilegrid" } |
+            ForEach-Object { Remove-Item $_.PSPath -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    # Win 11: Limpar layout do Menu Iniciar (remover todos os pins)
+    $startLayoutPath = "$env:LOCALAPPDATA\Packages\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\LocalState"
+    if (Test-Path $startLayoutPath) {
+        Remove-Item "$startLayoutPath\start*.bin" -Force -ErrorAction SilentlyContinue
+        Remove-Item "$startLayoutPath\start2.bin" -Force -ErrorAction SilentlyContinue
+    }
+
+    Write-Host "  Menu Iniciar limpo" -ForegroundColor Green
+
     $pinDir = "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
     if (Test-Path $pinDir) { Remove-Item "$pinDir\*" -Force -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Path $pinDir -Force | Out-Null
@@ -582,52 +622,143 @@ try {
 
 Write-Host "`n[11/$etapaTotal] Removendo programas do inicio automatico..." -ForegroundColor Cyan
 
-$autoStartRemove = @("Discord", "Steam", "Opera", "Spotify", "Microsoft Edge", "Teams", "Slack", "Chrome", "KeePass")
+# Itens que DEVEM permanecer no auto-inicio
+$manter = @("SecurityHealth", "RtkAudUService")
 
+# Limpar HKCU Run (remover TUDO exceto os mantidos e AnyDesk)
 $regRun = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 if (Test-Path $regRun) {
     $entries = Get-ItemProperty $regRun -ErrorAction SilentlyContinue
     foreach ($prop in $entries.PSObject.Properties) {
-        if ($prop.Name -match "PS" -or $prop.Name -eq "(default)") { continue }
-        foreach ($pattern in $autoStartRemove) {
-            if ($prop.Name -like "*$pattern*" -or $prop.Value -like "*$pattern*") {
-                Remove-ItemProperty -Path $regRun -Name $prop.Name -ErrorAction SilentlyContinue
-                Write-Host "  Removido: $($prop.Name)" -ForegroundColor Green
-            }
+        if ($prop.Name -match "^PS" -or $prop.Name -eq "(default)") { continue }
+        $keep = $false
+        foreach ($m in $manter) { if ($prop.Name -like "*$m*") { $keep = $true } }
+        if ($prop.Name -like "*AnyDesk*") { $keep = $true }
+        if (-not $keep) {
+            Remove-ItemProperty -Path $regRun -Name $prop.Name -ErrorAction SilentlyContinue
+            Write-Host "  Removido HKCU: $($prop.Name)" -ForegroundColor Green
         }
     }
 }
 
+# Limpar HKLM Run (remover TUDO exceto mantidos e AnyDesk)
 $regRunLM = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
 if (Test-Path $regRunLM) {
     $entries = Get-ItemProperty $regRunLM -ErrorAction SilentlyContinue
     foreach ($prop in $entries.PSObject.Properties) {
-        if ($prop.Name -match "PS" -or $prop.Name -eq "(default)") { continue }
-        foreach ($pattern in $autoStartRemove) {
-            if ($prop.Name -like "*$pattern*" -or $prop.Value -like "*$pattern*") {
-                Remove-ItemProperty -Path $regRunLM -Name $prop.Name -ErrorAction SilentlyContinue
-                Write-Host "  Removido: $($prop.Name)" -ForegroundColor Green
-            }
+        if ($prop.Name -match "^PS" -or $prop.Name -eq "(default)") { continue }
+        $keep = $false
+        foreach ($m in $manter) { if ($prop.Name -like "*$m*") { $keep = $true } }
+        if ($prop.Name -like "*AnyDesk*") { $keep = $true }
+        if (-not $keep) {
+            Remove-ItemProperty -Path $regRunLM -Name $prop.Name -ErrorAction SilentlyContinue
+            Write-Host "  Removido HKLM: $($prop.Name)" -ForegroundColor Green
         }
     }
 }
 
+# Corrigir AnyDesk para executar em segundo plano (--control)
+$anydeskPaths = @(
+    "$env:ProgramFiles\AnyDesk\AnyDesk.exe",
+    "${env:ProgramFiles(x86)}\AnyDesk\AnyDesk.exe"
+)
+foreach ($adPath in $anydeskPaths) {
+    if (Test-Path $adPath) {
+        Set-ItemProperty -Path $regRunLM -Name "AnyDesk" -Value "`"$adPath`" --control" -ErrorAction SilentlyContinue
+        Write-Host "  AnyDesk configurado em segundo plano (--control)" -ForegroundColor Green
+        break
+    }
+}
+
+# Limpar pasta Startup do usuario (tudo)
 $startupFolder = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 if (Test-Path $startupFolder) {
     Get-ChildItem $startupFolder -ErrorAction SilentlyContinue | ForEach-Object {
-        if ($_.Name -notlike "*AnyDesk*") {
-            Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
-            Write-Host "  Removido: $($_.Name)" -ForegroundColor Green
+        Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+        Write-Host "  Removido Startup: $($_.Name)" -ForegroundColor Green
+    }
+}
+
+# Limpar pasta Common Startup (todos os usuarios)
+$commonStartup = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\Startup"
+if (Test-Path $commonStartup) {
+    Get-ChildItem $commonStartup -ErrorAction SilentlyContinue | ForEach-Object {
+        Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+        Write-Host "  Removido Common Startup: $($_.Name)" -ForegroundColor Green
+    }
+}
+
+# Desativar auto-inicio via Task Manager (StartupApproved)
+$permitidos = @("SecurityHealth", "RtkAudUService", "AnyDesk")
+$disabledBytes = [byte[]](0x03,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00)
+
+# StartupApproved HKCU
+$regApproved = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+if (Test-Path $regApproved) {
+    (Get-Item $regApproved).GetValueNames() | ForEach-Object {
+        if ($_ -eq "(default)") { return }
+        $permitido = $false
+        foreach ($p in $permitidos) { if ($_ -like "*$p*") { $permitido = $true } }
+        if (-not $permitido) {
+            Set-ItemProperty -Path $regApproved -Name $_ -Value $disabledBytes -Type Binary -ErrorAction SilentlyContinue
+            Write-Host "  Desativado startup: $_" -ForegroundColor Green
         }
     }
 }
 
-Write-Host "  Auto-inicio limpo (AnyDesk mantido)" -ForegroundColor Green
+# StartupApproved HKLM
+$regApprovedLM = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+if (Test-Path $regApprovedLM) {
+    (Get-Item $regApprovedLM).GetValueNames() | ForEach-Object {
+        if ($_ -eq "(default)") { return }
+        $permitido = $false
+        foreach ($p in $permitidos) { if ($_ -like "*$p*") { $permitido = $true } }
+        if (-not $permitido) {
+            Set-ItemProperty -Path $regApprovedLM -Name $_ -Value $disabledBytes -Type Binary -ErrorAction SilentlyContinue
+            Write-Host "  Desativado startup HKLM: $_" -ForegroundColor Green
+        }
+    }
+}
 
-# Reiniciar Explorer para aplicar mudancas
-Stop-Process -Name "explorer" -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
-Start-Process "explorer.exe"
+# StartupApproved\StartupFolder
+$regApprovedFolder = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder"
+if (Test-Path $regApprovedFolder) {
+    (Get-Item $regApprovedFolder).GetValueNames() | ForEach-Object {
+        if ($_ -eq "(default)") { return }
+        $permitido = $false
+        foreach ($p in $permitidos) { if ($_ -like "*$p*") { $permitido = $true } }
+        if (-not $permitido) {
+            Set-ItemProperty -Path $regApprovedFolder -Name $_ -Value $disabledBytes -Type Binary -ErrorAction SilentlyContinue
+            Write-Host "  Desativado startup folder: $_" -ForegroundColor Green
+        }
+    }
+}
+
+# Remover OneDrive do auto-inicio (persistente)
+Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OneDrive" -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OneDriveSetup" -ErrorAction SilentlyContinue
+
+# Remover programas especificos que se readicionam
+Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Discord" -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "com.squirrel.slack.slack" -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "Steam" -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "EpicGamesLauncher" -ErrorAction SilentlyContinue
+Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "LGHUB" -ErrorAction SilentlyContinue
+
+# Desativar TODAS as tarefas agendadas de logon (exceto do sistema)
+$tarefasManter = @("MicrosoftEdgeUpdateTask", "SecurityHealth", "Windows", "Microsoft\Windows")
+Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+    $_.Triggers | Where-Object { $_ -is [Microsoft.Management.Infrastructure.CimInstance] -and $_.CimClass.CimClassName -eq "MSFT_TaskLogonTrigger" }
+} | ForEach-Object {
+    $skip = $false
+    foreach ($m in $tarefasManter) { if ($_.TaskPath -like "*$m*") { $skip = $true } }
+    if (-not $skip) {
+        Disable-ScheduledTask -TaskName $_.TaskName -TaskPath $_.TaskPath -ErrorAction SilentlyContinue
+        Write-Host "  Tarefa desativada: $($_.TaskName)" -ForegroundColor Green
+    }
+}
+
+Write-Host "  Auto-inicio limpo (AnyDesk segundo plano + audio mantidos)" -ForegroundColor Green
 
 # ============================================
 # [12] VERIFICAR CONTA MICROSOFT E CONVERTER PARA LOCAL
