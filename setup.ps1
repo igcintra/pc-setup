@@ -383,6 +383,19 @@ try {
             Write-Host "  Atalho ajustado: $lnk" -ForegroundColor Green
         }
     }
+    # Criar atalho em Documentos que abre a pasta config do OpenVPN
+    $docsPath = [Environment]::GetFolderPath("MyDocuments")
+    $configPath = "$env:ProgramFiles\OpenVPN\config"
+    if (Test-Path $configPath) {
+        $shell = New-Object -ComObject WScript.Shell
+        $atalho = $shell.CreateShortcut("$docsPath\OpenVPN Config.lnk")
+        $atalho.TargetPath = "explorer.exe"
+        $atalho.Arguments = "`"$configPath`""
+        $atalho.IconLocation = "$env:ProgramFiles\OpenVPN\bin\openvpn-gui.exe,0"
+        $atalho.Save()
+        Write-Host "  Atalho 'OpenVPN Config' criado em Documentos" -ForegroundColor Green
+    }
+
     Write-Host "  OpenVPN: config + executar como admin" -ForegroundColor Green
 } catch {
     Write-Host "  ERRO ao instalar OpenVPN: $_" -ForegroundColor Red
