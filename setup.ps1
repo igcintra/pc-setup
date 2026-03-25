@@ -23,7 +23,7 @@ Write-Host "DNS configurado (Google 8.8.8.8)" -ForegroundColor Gray
 $desktop = [Environment]::GetFolderPath("Desktop")
 $arquivo = "$desktop\info-pc.txt"
 $data = Get-Date -Format "dd/MM/yyyy HH:mm"
-$etapaTotal = 11
+$etapaTotal = 12
 $erros = @()
 
 Write-Host ""
@@ -546,10 +546,41 @@ try {
 }
 
 # ============================================
-# [10] REMOVER AUTO-INICIO DE PROGRAMAS
+# [10] WALLPAPER IG NETWORKS
 # ============================================
 
-Write-Host "`n[10/$etapaTotal] Removendo programas do inicio automatico..." -ForegroundColor Cyan
+Write-Host "`n[10/$etapaTotal] Configurando wallpaper..." -ForegroundColor Cyan
+
+try {
+    $wpUrl = "https://github.com/igcintra/pc-setup/releases/download/v1.0/IGN.jpg"
+    $wpPath = "$env:USERPROFILE\Pictures\IGN-wallpaper.jpg"
+    Invoke-WebRequest -Uri $wpUrl -OutFile $wpPath -UseBasicParsing -ErrorAction Stop
+
+    Add-Type -TypeDefinition @"
+    using System;
+    using System.Runtime.InteropServices;
+    public class Wallpaper {
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+    }
+"@
+    [Wallpaper]::SystemParametersInfo(0x0014, 0, $wpPath, 0x0003) | Out-Null
+
+    # Estilo: Fill (preencher)
+    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "WallpaperStyle" -Value "10" -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path "HKCU:\Control Panel\Desktop" -Name "TileWallpaper" -Value "0" -ErrorAction SilentlyContinue
+
+    Write-Host "  Wallpaper IG Networks aplicado" -ForegroundColor Green
+} catch {
+    Write-Host "  ERRO ao aplicar wallpaper: $_" -ForegroundColor Red
+    $erros += "Wallpaper"
+}
+
+# ============================================
+# [11] REMOVER AUTO-INICIO DE PROGRAMAS
+# ============================================
+
+Write-Host "`n[11/$etapaTotal] Removendo programas do inicio automatico..." -ForegroundColor Cyan
 
 $autoStartRemove = @("Discord", "Steam", "Opera", "Spotify", "Microsoft Edge", "Teams", "Slack", "Chrome", "KeePass")
 
@@ -599,10 +630,10 @@ Start-Sleep -Seconds 2
 Start-Process "explorer.exe"
 
 # ============================================
-# [11] VERIFICAR CONTA MICROSOFT E CONVERTER PARA LOCAL
+# [12] VERIFICAR CONTA MICROSOFT E CONVERTER PARA LOCAL
 # ============================================
 
-Write-Host "`n[11/$etapaTotal] Verificando conta do usuario..." -ForegroundColor Cyan
+Write-Host "`n[12/$etapaTotal] Verificando conta do usuario..." -ForegroundColor Cyan
 
 $usuarioLogado = (Get-CimInstance -ClassName Win32_ComputerSystem).UserName
 if ($usuarioLogado) {
