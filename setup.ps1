@@ -140,26 +140,44 @@ foreach ($m in $mcafee) {
 
 # Desinstalar OneDrive completamente
 Stop-Process -Name "OneDrive" -Force -ErrorAction SilentlyContinue
+Stop-Process -Name "OneDriveSetup" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 $onedrivePath = "$env:SystemRoot\SysWOW64\OneDriveSetup.exe"
 if (-not (Test-Path $onedrivePath)) { $onedrivePath = "$env:SystemRoot\System32\OneDriveSetup.exe" }
 if (Test-Path $onedrivePath) {
-    Start-Process $onedrivePath -ArgumentList "/uninstall" -Wait -ErrorAction SilentlyContinue
-    Write-Host "  OneDrive desinstalado" -ForegroundColor Green
+    $proc = Start-Process $onedrivePath -ArgumentList "/uninstall" -PassThru -ErrorAction SilentlyContinue
+    if ($proc -and -not $proc.WaitForExit(30000)) {
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        Write-Host "  OneDrive: timeout, forcado" -ForegroundColor Yellow
+    } else {
+        Write-Host "  OneDrive desinstalado" -ForegroundColor Green
+    }
     $removidos += "OneDrive"
 }
-# Remover via winget tambem
-winget uninstall --id Microsoft.OneDrive -e --silent 2>&1 | Out-Null
+# Remover via winget tambem (timeout 30s)
+$wingetOD = Start-Process "winget" -ArgumentList "uninstall --id Microsoft.OneDrive -e --silent" -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
+if ($wingetOD -and -not $wingetOD.WaitForExit(30000)) {
+    Stop-Process -Id $wingetOD.Id -Force -ErrorAction SilentlyContinue
+}
 
 # Desinstalar Teams completamente (Win 10 e 11)
 Stop-Process -Name "ms-teams" -Force -ErrorAction SilentlyContinue
 Stop-Process -Name "Teams" -Force -ErrorAction SilentlyContinue
-winget uninstall --id Microsoft.Teams -e --silent 2>&1 | Out-Null
-winget uninstall --name "Microsoft Teams" --silent 2>&1 | Out-Null
+$wingetTeams1 = Start-Process "winget" -ArgumentList "uninstall --id Microsoft.Teams -e --silent" -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
+if ($wingetTeams1 -and -not $wingetTeams1.WaitForExit(30000)) {
+    Stop-Process -Id $wingetTeams1.Id -Force -ErrorAction SilentlyContinue
+}
+$wingetTeams2 = Start-Process "winget" -ArgumentList "uninstall --name `"Microsoft Teams`" --silent" -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
+if ($wingetTeams2 -and -not $wingetTeams2.WaitForExit(30000)) {
+    Stop-Process -Id $wingetTeams2.Id -Force -ErrorAction SilentlyContinue
+}
 # Teams classico
 $teamsPath = "$env:LOCALAPPDATA\Microsoft\Teams\Update.exe"
 if (Test-Path $teamsPath) {
-    Start-Process $teamsPath -ArgumentList "--uninstall -s" -Wait -ErrorAction SilentlyContinue
+    $proc = Start-Process $teamsPath -ArgumentList "--uninstall -s" -PassThru -ErrorAction SilentlyContinue
+    if ($proc -and -not $proc.WaitForExit(30000)) {
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+    }
     Write-Host "  Teams desinstalado" -ForegroundColor Green
     $removidos += "Teams"
 }
