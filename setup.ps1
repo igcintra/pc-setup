@@ -175,59 +175,45 @@ foreach ($mid in $mcafeeIds) {
         Write-Host " nao encontrado" -ForegroundColor Gray
     }
 }
-Kill-McAfee
 Write-Host "  McAfee: concluido" -ForegroundColor Green
 
-# Desinstalar OneDrive completamente
-Stop-Process -Name "OneDrive" -Force -ErrorAction SilentlyContinue
-Stop-Process -Name "OneDriveSetup" -Force -ErrorAction SilentlyContinue
+# Matar TUDO via taskkill (nao trava em processos protegidos)
+$matarNomes = @("OneDrive","OneDriveSetup","ms-teams","Teams","Dropbox","DropboxUpdate","mcafee*","McUICnt","mcshield","ModuleCoreService","MMSSHOST","McPvTray","WebAdvisor","mfemms","mfevtps","protectedmodulehost")
+foreach ($nome in $matarNomes) {
+    Start-Process "taskkill" -ArgumentList "/f /im $nome.exe" -WindowStyle Hidden -ErrorAction SilentlyContinue
+}
 Start-Sleep -Seconds 2
+
+# OneDrive (timeout 15s)
+Write-Host "  OneDrive..." -ForegroundColor Yellow -NoNewline
 $onedrivePath = "$env:SystemRoot\SysWOW64\OneDriveSetup.exe"
 if (-not (Test-Path $onedrivePath)) { $onedrivePath = "$env:SystemRoot\System32\OneDriveSetup.exe" }
 if (Test-Path $onedrivePath) {
     $proc = Start-Process $onedrivePath -ArgumentList "/uninstall" -PassThru -ErrorAction SilentlyContinue
-    if ($proc -and -not $proc.WaitForExit(30000)) {
-        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-        Write-Host "  OneDrive: timeout, forcado" -ForegroundColor Yellow
-    } else {
-        Write-Host "  OneDrive desinstalado" -ForegroundColor Green
-    }
+    if ($proc -and -not $proc.WaitForExit(15000)) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
     $removidos += "OneDrive"
 }
-# Remover via winget tambem (timeout 30s)
-$wingetOD = Start-Process "winget" -ArgumentList "uninstall --id Microsoft.OneDrive -e --silent" -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
-if ($wingetOD -and -not $wingetOD.WaitForExit(30000)) {
-    Stop-Process -Id $wingetOD.Id -Force -ErrorAction SilentlyContinue
-}
+$p = Start-Process "winget" -ArgumentList "uninstall --id Microsoft.OneDrive -e --silent --force --disable-interactivity" -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
+if ($p -and -not $p.WaitForExit(15000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+Write-Host " OK" -ForegroundColor Green
 
-# Desinstalar Teams completamente (Win 10 e 11)
-Stop-Process -Name "ms-teams" -Force -ErrorAction SilentlyContinue
-Stop-Process -Name "Teams" -Force -ErrorAction SilentlyContinue
-$wingetTeams1 = Start-Process "winget" -ArgumentList "uninstall --id Microsoft.Teams -e --silent" -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
-if ($wingetTeams1 -and -not $wingetTeams1.WaitForExit(30000)) {
-    Stop-Process -Id $wingetTeams1.Id -Force -ErrorAction SilentlyContinue
-}
-$wingetTeams2 = Start-Process "winget" -ArgumentList "uninstall --name `"Microsoft Teams`" --silent" -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
-if ($wingetTeams2 -and -not $wingetTeams2.WaitForExit(30000)) {
-    Stop-Process -Id $wingetTeams2.Id -Force -ErrorAction SilentlyContinue
-}
-# Teams classico
+# Teams (timeout 15s)
+Write-Host "  Teams..." -ForegroundColor Yellow -NoNewline
+$p = Start-Process "winget" -ArgumentList "uninstall --id Microsoft.Teams -e --silent --force --disable-interactivity" -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
+if ($p -and -not $p.WaitForExit(15000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
 $teamsPath = "$env:LOCALAPPDATA\Microsoft\Teams\Update.exe"
 if (Test-Path $teamsPath) {
     $proc = Start-Process $teamsPath -ArgumentList "--uninstall -s" -PassThru -ErrorAction SilentlyContinue
-    if ($proc -and -not $proc.WaitForExit(30000)) {
-        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-    }
-    Write-Host "  Teams desinstalado" -ForegroundColor Green
+    if ($proc -and -not $proc.WaitForExit(15000)) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
     $removidos += "Teams"
 }
+Write-Host " OK" -ForegroundColor Green
 
-# Desinstalar Dropbox
-Stop-Process -Name "Dropbox" -Force -ErrorAction SilentlyContinue
-$wingetDropbox = Start-Process "winget" -ArgumentList "uninstall --id Dropbox.Dropbox -e --silent" -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
-if ($wingetDropbox -and -not $wingetDropbox.WaitForExit(30000)) {
-    Stop-Process -Id $wingetDropbox.Id -Force -ErrorAction SilentlyContinue
-}
+# Dropbox (timeout 15s)
+Write-Host "  Dropbox..." -ForegroundColor Yellow -NoNewline
+$p = Start-Process "winget" -ArgumentList "uninstall --id Dropbox.Dropbox -e --silent --force --disable-interactivity" -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
+if ($p -and -not $p.WaitForExit(15000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+Write-Host " OK" -ForegroundColor Green
 
 if ($removidos.Count -eq 0) {
     Write-Host "  Nenhum bloatware encontrado" -ForegroundColor Gray
