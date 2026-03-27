@@ -61,6 +61,19 @@ Write-Host "  OK" -ForegroundColor Green
 
 Write-Host "`n[2/$etapaTotal] Removendo bloatware..." -ForegroundColor Cyan
 
+# Derrubar processos que podem interferir na remocao
+$processosMatar = @(
+    "McAfee*", "mcshield", "mcuicnt", "McUICnt", "ModuleCoreService", "MMSSHOST", "McPvTray",
+    "OneDrive", "OneDriveSetup",
+    "ms-teams", "Teams",
+    "Dropbox", "DropboxUpdate",
+    "WebAdvisor", "mcwebadvisor"
+)
+foreach ($proc in $processosMatar) {
+    Get-Process -Name $proc -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+Write-Host "  Processos bloatware encerrados" -ForegroundColor Green
+
 $bloatware = @(
     # McAfee
     "McAfee*",
