@@ -98,7 +98,9 @@ $bloatware = @(
     "Facebook*",
     "Instagram*",
     "Disney*",
-    "Clipchamp*"
+    "Clipchamp*",
+    # Dropbox
+    "Dropbox*"
 )
 
 $removidos = @()
@@ -180,6 +182,13 @@ if (Test-Path $teamsPath) {
     }
     Write-Host "  Teams desinstalado" -ForegroundColor Green
     $removidos += "Teams"
+}
+
+# Desinstalar Dropbox
+Stop-Process -Name "Dropbox" -Force -ErrorAction SilentlyContinue
+$wingetDropbox = Start-Process "winget" -ArgumentList "uninstall --id Dropbox.Dropbox -e --silent" -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
+if ($wingetDropbox -and -not $wingetDropbox.WaitForExit(30000)) {
+    Stop-Process -Id $wingetDropbox.Id -Force -ErrorAction SilentlyContinue
 }
 
 if ($removidos.Count -eq 0) {
