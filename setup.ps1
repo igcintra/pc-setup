@@ -989,36 +989,38 @@ try {
 # [11] REMOVER AUTO-INICIO DE PROGRAMAS
 # ============================================
 
-Write-Host "`n[11/$etapaTotal] Configurando energia (sem sleep/hibernate, power = desligar)..." -ForegroundColor Cyan
+Write-Host "`n[11/$etapaTotal] Configurando energia..." -ForegroundColor Cyan
+
+# AC (carregador): nada apaga / nao dorme
+powercfg /change monitor-timeout-ac 0 2>&1 | Out-Null
+powercfg /change standby-timeout-ac 0 2>&1 | Out-Null
+powercfg /change hibernate-timeout-ac 0 2>&1 | Out-Null
+Write-Host "  AC (carregador): nunca apaga tela, nunca dorme" -ForegroundColor Green
+
+# Bateria: tela apaga em 30 min, NAO dorme
+powercfg /change monitor-timeout-dc 30 2>&1 | Out-Null
+powercfg /change standby-timeout-dc 0 2>&1 | Out-Null
+powercfg /change hibernate-timeout-dc 0 2>&1 | Out-Null
+Write-Host "  Bateria: tela apaga em 30 min, sem sleep" -ForegroundColor Green
+
+# Botoes: 0=nada, 1=sleep, 2=hibernate, 3=shutdown, 4=desliga display
+# Power button -> shutdown (real, sem Fast Startup)
+powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 7648efa3-dd9c-4e3e-b566-50f929386280 3 2>&1 | Out-Null
+powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 7648efa3-dd9c-4e3e-b566-50f929386280 3 2>&1 | Out-Null
+# Lid close -> sleep (volta quando abrir a tampa)
+powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 1 2>&1 | Out-Null
+powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 1 2>&1 | Out-Null
+Write-Host "  Botao Power = desligar | Fechar tampa = sleep (volta ao abrir)" -ForegroundColor Green
+
+# NAO pedir senha ao acordar (resolve o "bloqueia depois de X min")
+powercfg /setacvalueindex SCHEME_CURRENT SUB_NONE CONSOLELOCK 0 2>&1 | Out-Null
+powercfg /setdcvalueindex SCHEME_CURRENT SUB_NONE CONSOLELOCK 0 2>&1 | Out-Null
+Write-Host "  Senha ao acordar: desativada" -ForegroundColor Green
 
 # Desabilita hibernacao por completo (tambem desabilita Fast Startup)
 powercfg /hibernate off 2>&1 | Out-Null
-Write-Host "  Hibernacao desabilitada" -ForegroundColor Green
-
-# Timeouts pra NUNCA (0 = nunca)
-powercfg /change monitor-timeout-ac 0 2>&1 | Out-Null
-powercfg /change monitor-timeout-dc 0 2>&1 | Out-Null
-powercfg /change standby-timeout-ac 0 2>&1 | Out-Null
-powercfg /change standby-timeout-dc 0 2>&1 | Out-Null
-powercfg /change hibernate-timeout-ac 0 2>&1 | Out-Null
-powercfg /change hibernate-timeout-dc 0 2>&1 | Out-Null
-Write-Host "  Sleep, hibernate e monitor: nunca" -ForegroundColor Green
-
-# Botoes: 0=nada, 1=sleep, 2=hibernate, 3=shutdown, 4=desliga display
-# Power button -> shutdown (AC e DC)
-powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 7648efa3-dd9c-4e3e-b566-50f929386280 3 2>&1 | Out-Null
-powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 7648efa3-dd9c-4e3e-b566-50f929386280 3 2>&1 | Out-Null
-# Sleep button -> shutdown (AC e DC)
-powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 96996bc0-ad50-47ec-923b-6f41874dd9eb 3 2>&1 | Out-Null
-powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 96996bc0-ad50-47ec-923b-6f41874dd9eb 3 2>&1 | Out-Null
-# Lid close -> nada (notebook continua ligado mesmo com tampa fechada)
-powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0 2>&1 | Out-Null
-powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0 2>&1 | Out-Null
-Write-Host "  Botao Power = desligar, Lid close = nada" -ForegroundColor Green
-
-# Belt-and-suspenders: desabilita Fast Startup via registro (mesmo que hibernate ja desabilite)
 REG ADD "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /V HiberbootEnabled /T REG_DWORD /D 0 /F 2>&1 | Out-Null
-Write-Host "  Fast Startup desabilitado (shutdown = shutdown de verdade)" -ForegroundColor Green
+Write-Host "  Hibernacao desabilitada (shutdown = shutdown de verdade)" -ForegroundColor Green
 
 # Aplica
 powercfg /setactive SCHEME_CURRENT 2>&1 | Out-Null
