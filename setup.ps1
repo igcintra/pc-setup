@@ -1020,7 +1020,27 @@ Write-Host "  Senha ao acordar: desativada" -ForegroundColor Green
 # Desabilita hibernacao por completo (tambem desabilita Fast Startup)
 powercfg /hibernate off 2>&1 | Out-Null
 REG ADD "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /V HiberbootEnabled /T REG_DWORD /D 0 /F 2>&1 | Out-Null
-Write-Host "  Hibernacao desabilitada (shutdown = shutdown de verdade)" -ForegroundColor Green
+Write-Host "  Hibernacao desabilitada (shutdown = shutdown real, sem Fast Startup)" -ForegroundColor Green
+
+# Desabilita Modern Standby (S0ix) - causa do "LED piscando" apos shutdown em notebooks novos.
+# Forca o sistema a usar S3 (sleep) e S5 (shutdown real) tradicionais.
+REG ADD "HKLM\SYSTEM\CurrentControlSet\Control\Power" /V PlatformAoAcOverride /T REG_DWORD /D 0 /F 2>&1 | Out-Null
+Write-Host "  Modern Standby desabilitado (S5 forcado no shutdown)" -ForegroundColor Green
+
+# Desabilita TODOS os devices que podem acordar o PC (Wake on LAN, USB, etc).
+# Esses devices mantem rail de energia ligado mesmo apos shutdown, causando LED ativo.
+try {
+    $wakeDevices = powercfg /devicequery wake_armed 2>&1 | Where-Object { $_ -and $_ -notmatch 'NONE|------' }
+    $disabled = 0
+    foreach ($dev in $wakeDevices) {
+        $d = "$dev".Trim()
+        if ($d) {
+            powercfg /devicedisablewake "$d" 2>&1 | Out-Null
+            $disabled++
+        }
+    }
+    if ($disabled -gt 0) { Write-Host "  $disabled dispositivo(s) impedido(s) de acordar o PC" -ForegroundColor Green }
+} catch {}
 
 # Aplica
 powercfg /setactive SCHEME_CURRENT 2>&1 | Out-Null
