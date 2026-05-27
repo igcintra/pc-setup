@@ -377,12 +377,40 @@ foreach ($prog in $programas) {
             Write-Host " OK (retry com source winget)" -ForegroundColor Green
             $instalados += "$($prog.nome) - Instalado (retry)"
         } else {
-            $errMsg = ($resultado -join " ") -replace "\s+", " "
-            if ($errMsg.Length -gt 250) { $errMsg = $errMsg.Substring(0, 250) + "..." }
-            Write-Host " ERRO (exit $code)" -ForegroundColor Red
-            Write-Host "    $errMsg" -ForegroundColor DarkRed
-            $instalados += "$($prog.nome) - ERRO: $errMsg"
-            $erros += $prog.nome
+            # Fallback especifico por programa: download direto do site oficial
+            $fallbackInstalled = $false
+            switch ($prog.id) {
+                'Google.Chrome' {
+                    try {
+                        $chromeMsi = "$env:TEMP\chrome_installer.msi"
+                        Invoke-WebRequest -Uri "https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi" -OutFile $chromeMsi -UseBasicParsing -ErrorAction Stop
+                        $p = Start-Process "msiexec.exe" -ArgumentList "/i `"$chromeMsi`" /qn /norestart" -Wait -PassThru
+                        if ($p.ExitCode -eq 0) { $fallbackInstalled = $true }
+                        Remove-Item $chromeMsi -ErrorAction SilentlyContinue
+                    } catch {}
+                }
+                'RARLab.WinRAR' {
+                    try {
+                        $winrarExe = "$env:TEMP\winrar_installer.exe"
+                        Invoke-WebRequest -Uri "https://www.rarlab.com/rar/winrar-x64-711br.exe" -OutFile $winrarExe -UseBasicParsing -ErrorAction Stop
+                        $p = Start-Process $winrarExe -ArgumentList "/S" -Wait -PassThru
+                        if ($p.ExitCode -eq 0) { $fallbackInstalled = $true }
+                        Remove-Item $winrarExe -ErrorAction SilentlyContinue
+                    } catch {}
+                }
+            }
+
+            if ($fallbackInstalled) {
+                Write-Host " OK (fallback direto)" -ForegroundColor Green
+                $instalados += "$($prog.nome) - Instalado (fallback)"
+            } else {
+                $errMsg = ($resultado -join " ") -replace "\s+", " "
+                if ($errMsg.Length -gt 250) { $errMsg = $errMsg.Substring(0, 250) + "..." }
+                Write-Host " ERRO (exit $code)" -ForegroundColor Red
+                Write-Host "    $errMsg" -ForegroundColor DarkRed
+                $instalados += "$($prog.nome) - ERRO: $errMsg"
+                $erros += $prog.nome
+            }
         }
     }
 }
