@@ -379,34 +379,72 @@ foreach ($prog in $programas) {
         } else {
             # Fallback especifico por programa: download direto do site oficial
             $fallbackInstalled = $false
+            $fallbackTried = $false  # marca se mostramos mensagens de progresso (quebra a linha "...")
+
             switch ($prog.id) {
                 'Google.Chrome' {
+                    $fallbackTried = $true
+                    Write-Host ""  # quebra a linha do NoNewline anterior
                     try {
+                        Write-Host "    [fallback] Baixando Chrome MSI direto do Google..." -ForegroundColor DarkYellow
                         $chromeMsi = "$env:TEMP\chrome_installer.msi"
                         Invoke-WebRequest -Uri "https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi" -OutFile $chromeMsi -UseBasicParsing -ErrorAction Stop
-                        $p = Start-Process "msiexec.exe" -ArgumentList "/i `"$chromeMsi`" /qn /norestart" -Wait -PassThru
-                        if ($p.ExitCode -eq 0) { $fallbackInstalled = $true }
+                        $sizeMB = [math]::Round((Get-Item $chromeMsi).Length / 1MB, 1)
+                        Write-Host "    [fallback] Download OK ($sizeMB MB). Instalando MSI (~1-2 min, timeout 3 min)..." -ForegroundColor DarkYellow
+                        $p = Start-Process "msiexec.exe" -ArgumentList "/i `"$chromeMsi`" /qn /norestart" -PassThru
+                        if (-not $p.WaitForExit(180000)) {
+                            $p.Kill()
+                            Write-Host "    [fallback] TIMEOUT: msiexec demorou mais de 3 min, processo encerrado" -ForegroundColor Red
+                        } elseif ($p.ExitCode -eq 0) {
+                            $fallbackInstalled = $true
+                        } else {
+                            Write-Host "    [fallback] msiexec retornou exit code $($p.ExitCode)" -ForegroundColor Red
+                        }
                         Remove-Item $chromeMsi -ErrorAction SilentlyContinue
-                    } catch {}
+                    } catch {
+                        Write-Host "    [fallback] Falha: $($_.Exception.Message)" -ForegroundColor Red
+                    }
                 }
                 'RARLab.WinRAR' {
+                    $fallbackTried = $true
+                    Write-Host ""
                     try {
+                        Write-Host "    [fallback] Baixando WinRAR direto do RARLab..." -ForegroundColor DarkYellow
                         $winrarExe = "$env:TEMP\winrar_installer.exe"
                         Invoke-WebRequest -Uri "https://www.rarlab.com/rar/winrar-x64-711br.exe" -OutFile $winrarExe -UseBasicParsing -ErrorAction Stop
-                        $p = Start-Process $winrarExe -ArgumentList "/S" -Wait -PassThru
-                        if ($p.ExitCode -eq 0) { $fallbackInstalled = $true }
+                        $sizeMB = [math]::Round((Get-Item $winrarExe).Length / 1MB, 1)
+                        Write-Host "    [fallback] Download OK ($sizeMB MB). Instalando (timeout 2 min)..." -ForegroundColor DarkYellow
+                        $p = Start-Process $winrarExe -ArgumentList "/S" -PassThru
+                        if (-not $p.WaitForExit(120000)) {
+                            $p.Kill()
+                            Write-Host "    [fallback] TIMEOUT: instalador demorou mais de 2 min" -ForegroundColor Red
+                        } elseif ($p.ExitCode -eq 0) {
+                            $fallbackInstalled = $true
+                        } else {
+                            Write-Host "    [fallback] Instalador retornou exit code $($p.ExitCode)" -ForegroundColor Red
+                        }
                         Remove-Item $winrarExe -ErrorAction SilentlyContinue
-                    } catch {}
+                    } catch {
+                        Write-Host "    [fallback] Falha: $($_.Exception.Message)" -ForegroundColor Red
+                    }
                 }
             }
 
             if ($fallbackInstalled) {
-                Write-Host " OK (fallback direto)" -ForegroundColor Green
+                if ($fallbackTried) {
+                    Write-Host "    [fallback] => OK" -ForegroundColor Green
+                } else {
+                    Write-Host " OK (fallback direto)" -ForegroundColor Green
+                }
                 $instalados += "$($prog.nome) - Instalado (fallback)"
             } else {
                 $errMsg = ($resultado -join " ") -replace "\s+", " "
                 if ($errMsg.Length -gt 250) { $errMsg = $errMsg.Substring(0, 250) + "..." }
-                Write-Host " ERRO (exit $code)" -ForegroundColor Red
+                if ($fallbackTried) {
+                    Write-Host "    [fallback] => ERRO (winget exit $code, fallback tambem falhou)" -ForegroundColor Red
+                } else {
+                    Write-Host " ERRO (exit $code)" -ForegroundColor Red
+                }
                 Write-Host "    $errMsg" -ForegroundColor DarkRed
                 $instalados += "$($prog.nome) - ERRO: $errMsg"
                 $erros += $prog.nome
