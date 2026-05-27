@@ -285,22 +285,105 @@ $instalados = @()
 $total = $programas.Count + 1  # +1 para AnyDesk separado
 $atual = 0
 
+# Habilita TLS 1.2 antes de qualquer download (necessario em Win10/11 fresh)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# ============================================
+# Health check do winget + bootstrap se necessario
+# ============================================
+function Test-WingetWorking {
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { return $false }
+    try {
+        $null = winget --version 2>&1
+        if ($LASTEXITCODE -ne 0) { return $false }
+        $sourceTest = winget source list 2>&1
+        if ($LASTEXITCODE -ne 0) { return $false }
+        return $true
+    } catch { return $false }
+}
+
+function Install-WingetBootstrap {
+    Write-Host "  Tentando bootstrap do winget (App Installer)..." -ForegroundColor Yellow
+    $tempDir = "$env:TEMP\winget-bootstrap"
+    if (-not (Test-Path $tempDir)) { New-Item -ItemType Directory -Path $tempDir -Force | Out-Null }
+
+    try {
+        # VCLibs (dependencia)
+        $vcLibsUrl = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
+        Invoke-WebRequest -Uri $vcLibsUrl -OutFile "$tempDir\vclibs.appx" -UseBasicParsing -ErrorAction Stop
+
+        # UI.Xaml (dependencia)
+        $uiXamlUrl = "https://github.com/microsoft/microsoft-ui-xaml/releases/download/v2.8.6/Microsoft.UI.Xaml.2.8.x64.appx"
+        Invoke-WebRequest -Uri $uiXamlUrl -OutFile "$tempDir\uixaml.appx" -UseBasicParsing -ErrorAction Stop
+
+        # Winget (DesktopAppInstaller)
+        $wingetUrl = "https://github.com/microsoft/winget-cli/releases/latest/download/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
+        Invoke-WebRequest -Uri $wingetUrl -OutFile "$tempDir\winget.msixbundle" -UseBasicParsing -ErrorAction Stop
+
+        Add-AppxPackage -Path "$tempDir\vclibs.appx" -ErrorAction SilentlyContinue
+        Add-AppxPackage -Path "$tempDir\uixaml.appx" -ErrorAction SilentlyContinue
+        Add-AppxPackage -Path "$tempDir\winget.msixbundle" -ErrorAction Stop
+
+        Write-Host "  Bootstrap do winget concluido" -ForegroundColor Green
+        return $true
+    } catch {
+        Write-Host "  Bootstrap do winget falhou: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
+}
+
+if (-not (Test-WingetWorking)) {
+    Write-Host "  Winget nao detectado ou nao funcional. Tentando bootstrap..." -ForegroundColor Yellow
+    if (Install-WingetBootstrap) {
+        # Recarrega PATH para que winget seja encontrado nesta mesma sessao
+        $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+        Start-Sleep -Seconds 3
+        if (Test-WingetWorking) {
+            winget source update 2>&1 | Out-Null
+        }
+    }
+}
+
+$wingetOk = Test-WingetWorking
+if (-not $wingetOk) {
+    Write-Host "  AVISO: Winget continua nao funcional. Programas via winget vao falhar." -ForegroundColor Red
+    Write-Host "  Sugestao: instalar manualmente, ou atualizar 'App Installer' pela Microsoft Store." -ForegroundColor Yellow
+}
+
 foreach ($prog in $programas) {
     $atual++
     Write-Host "  [$atual/$total] $($prog.nome)..." -ForegroundColor Yellow -NoNewline
 
-    $resultado = winget install --id $prog.id -e --accept-source-agreements --accept-package-agreements --silent 2>&1
+    if (-not $wingetOk) {
+        Write-Host " PULADO (winget indisponivel)" -ForegroundColor Red
+        $instalados += "$($prog.nome) - PULADO (winget indisponivel)"
+        $erros += $prog.nome
+        continue
+    }
 
-    if ($LASTEXITCODE -eq 0) {
+    $resultado = winget install --id $prog.id -e --accept-source-agreements --accept-package-agreements --silent 2>&1
+    $code = $LASTEXITCODE
+
+    if ($code -eq 0) {
         Write-Host " OK" -ForegroundColor Green
         $instalados += "$($prog.nome) - Instalado"
-    } elseif ($resultado -match "already installed") {
+    } elseif ($resultado -match "already installed|ja esta instalado") {
         Write-Host " Ja instalado" -ForegroundColor Gray
         $instalados += "$($prog.nome) - Ja instalado"
     } else {
-        Write-Host " ERRO" -ForegroundColor Red
-        $instalados += "$($prog.nome) - ERRO"
-        $erros += $prog.nome
+        # Tenta uma vez mais com --source winget explicito (resolve casos onde a fonte msstore esta com erro)
+        $resultado2 = winget install --id $prog.id -e --source winget --accept-source-agreements --accept-package-agreements --silent 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host " OK (retry com source winget)" -ForegroundColor Green
+            $instalados += "$($prog.nome) - Instalado (retry)"
+        } else {
+            $errMsg = ($resultado -join " ") -replace "\s+", " "
+            if ($errMsg.Length -gt 250) { $errMsg = $errMsg.Substring(0, 250) + "..." }
+            Write-Host " ERRO (exit $code)" -ForegroundColor Red
+            Write-Host "    $errMsg" -ForegroundColor DarkRed
+            $instalados += "$($prog.nome) - ERRO: $errMsg"
+            $erros += $prog.nome
+        }
     }
 }
 
