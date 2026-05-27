@@ -1012,11 +1012,6 @@ powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5c
 powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 1 2>&1 | Out-Null
 Write-Host "  Botao Power = desligar | Fechar tampa = sleep (volta ao abrir)" -ForegroundColor Green
 
-# NAO pedir senha ao acordar (resolve o "bloqueia depois de X min")
-powercfg /setacvalueindex SCHEME_CURRENT SUB_NONE CONSOLELOCK 0 2>&1 | Out-Null
-powercfg /setdcvalueindex SCHEME_CURRENT SUB_NONE CONSOLELOCK 0 2>&1 | Out-Null
-Write-Host "  Senha ao acordar: desativada" -ForegroundColor Green
-
 # Desabilita hibernacao por completo (tambem desabilita Fast Startup)
 powercfg /hibernate off 2>&1 | Out-Null
 REG ADD "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /V HiberbootEnabled /T REG_DWORD /D 0 /F 2>&1 | Out-Null
