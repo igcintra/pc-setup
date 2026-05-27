@@ -288,6 +288,51 @@ $atual = 0
 # Habilita TLS 1.2 antes de qualquer download (necessario em Win10/11 fresh)
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+# Helper de download com timeout REAL de transferencia (BITS, fallback curl.exe)
+# Retorna $true se sucesso, $false se falha/timeout
+function Download-File {
+    param(
+        [string]$Url,
+        [string]$OutPath,
+        [int]$TimeoutSec = 180
+    )
+
+    # Tentativa 1: BITS (servico nativo do Windows, com retry, resume, e timeout efetivo)
+    try {
+        $job = Start-BitsTransfer -Source $Url -Destination $OutPath -DisplayName "download-pc-setup" -Asynchronous -ErrorAction Stop
+        $start = Get-Date
+        while ($job.JobState -in 'Connecting','Transferring','Queued') {
+            if (((Get-Date) - $start).TotalSeconds -gt $TimeoutSec) {
+                Remove-BitsTransfer -BitsJob $job -ErrorAction SilentlyContinue
+                Write-Host "    [download] TIMEOUT BITS apos $TimeoutSec s" -ForegroundColor Red
+                return $false
+            }
+            Start-Sleep -Seconds 2
+        }
+        if ($job.JobState -eq 'Transferred') {
+            Complete-BitsTransfer -BitsJob $job
+            return (Test-Path $OutPath) -and ((Get-Item $OutPath).Length -gt 0)
+        } else {
+            Remove-BitsTransfer -BitsJob $job -ErrorAction SilentlyContinue
+            Write-Host "    [download] BITS falhou (estado: $($job.JobState))" -ForegroundColor Red
+        }
+    } catch {
+        Write-Host "    [download] BITS indisponivel, tentando curl.exe..." -ForegroundColor DarkYellow
+    }
+
+    # Tentativa 2: curl.exe (nativo Win10/11, --max-time funciona pra transferencia inteira)
+    $curlExe = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curlExe) {
+        $p = Start-Process curl.exe -ArgumentList @("-L","-s","--max-time","$TimeoutSec","-o","`"$OutPath`"","`"$Url`"") -PassThru -Wait -NoNewWindow
+        if ($p.ExitCode -eq 0 -and (Test-Path $OutPath) -and ((Get-Item $OutPath).Length -gt 0)) {
+            return $true
+        }
+        Write-Host "    [download] curl.exe falhou (exit $($p.ExitCode))" -ForegroundColor Red
+    }
+
+    return $false
+}
+
 # ============================================
 # Health check do winget + bootstrap se necessario
 # ============================================
@@ -386,21 +431,25 @@ foreach ($prog in $programas) {
                     $fallbackTried = $true
                     Write-Host ""  # quebra a linha do NoNewline anterior
                     try {
-                        Write-Host "    [fallback] Baixando Chrome MSI direto do Google..." -ForegroundColor DarkYellow
+                        Write-Host "    [fallback] Baixando Chrome MSI direto do Google (timeout 4 min)..." -ForegroundColor DarkYellow
                         $chromeMsi = "$env:TEMP\chrome_installer.msi"
-                        Invoke-WebRequest -Uri "https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi" -OutFile $chromeMsi -UseBasicParsing -ErrorAction Stop
-                        $sizeMB = [math]::Round((Get-Item $chromeMsi).Length / 1MB, 1)
-                        Write-Host "    [fallback] Download OK ($sizeMB MB). Instalando MSI (~1-2 min, timeout 3 min)..." -ForegroundColor DarkYellow
-                        $p = Start-Process "msiexec.exe" -ArgumentList "/i `"$chromeMsi`" /qn /norestart" -PassThru
-                        if (-not $p.WaitForExit(180000)) {
-                            $p.Kill()
-                            Write-Host "    [fallback] TIMEOUT: msiexec demorou mais de 3 min, processo encerrado" -ForegroundColor Red
-                        } elseif ($p.ExitCode -eq 0) {
-                            $fallbackInstalled = $true
+                        if (Test-Path $chromeMsi) { Remove-Item $chromeMsi -Force -ErrorAction SilentlyContinue }
+                        if (Download-File "https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi" $chromeMsi 240) {
+                            $sizeMB = [math]::Round((Get-Item $chromeMsi).Length / 1MB, 1)
+                            Write-Host "    [fallback] Download OK ($sizeMB MB). Instalando MSI (timeout 3 min)..." -ForegroundColor DarkYellow
+                            $p = Start-Process "msiexec.exe" -ArgumentList "/i `"$chromeMsi`" /qn /norestart" -PassThru
+                            if (-not $p.WaitForExit(180000)) {
+                                $p.Kill()
+                                Write-Host "    [fallback] TIMEOUT: msiexec demorou mais de 3 min, processo encerrado" -ForegroundColor Red
+                            } elseif ($p.ExitCode -eq 0) {
+                                $fallbackInstalled = $true
+                            } else {
+                                Write-Host "    [fallback] msiexec retornou exit code $($p.ExitCode)" -ForegroundColor Red
+                            }
+                            Remove-Item $chromeMsi -ErrorAction SilentlyContinue
                         } else {
-                            Write-Host "    [fallback] msiexec retornou exit code $($p.ExitCode)" -ForegroundColor Red
+                            Write-Host "    [fallback] Download falhou ou estourou timeout" -ForegroundColor Red
                         }
-                        Remove-Item $chromeMsi -ErrorAction SilentlyContinue
                     } catch {
                         Write-Host "    [fallback] Falha: $($_.Exception.Message)" -ForegroundColor Red
                     }
@@ -409,21 +458,25 @@ foreach ($prog in $programas) {
                     $fallbackTried = $true
                     Write-Host ""
                     try {
-                        Write-Host "    [fallback] Baixando WinRAR direto do RARLab..." -ForegroundColor DarkYellow
+                        Write-Host "    [fallback] Baixando WinRAR direto do RARLab (timeout 2 min)..." -ForegroundColor DarkYellow
                         $winrarExe = "$env:TEMP\winrar_installer.exe"
-                        Invoke-WebRequest -Uri "https://www.rarlab.com/rar/winrar-x64-711br.exe" -OutFile $winrarExe -UseBasicParsing -ErrorAction Stop
-                        $sizeMB = [math]::Round((Get-Item $winrarExe).Length / 1MB, 1)
-                        Write-Host "    [fallback] Download OK ($sizeMB MB). Instalando (timeout 2 min)..." -ForegroundColor DarkYellow
-                        $p = Start-Process $winrarExe -ArgumentList "/S" -PassThru
-                        if (-not $p.WaitForExit(120000)) {
-                            $p.Kill()
-                            Write-Host "    [fallback] TIMEOUT: instalador demorou mais de 2 min" -ForegroundColor Red
-                        } elseif ($p.ExitCode -eq 0) {
-                            $fallbackInstalled = $true
+                        if (Test-Path $winrarExe) { Remove-Item $winrarExe -Force -ErrorAction SilentlyContinue }
+                        if (Download-File "https://www.rarlab.com/rar/winrar-x64-711br.exe" $winrarExe 120) {
+                            $sizeMB = [math]::Round((Get-Item $winrarExe).Length / 1MB, 1)
+                            Write-Host "    [fallback] Download OK ($sizeMB MB). Instalando (timeout 2 min)..." -ForegroundColor DarkYellow
+                            $p = Start-Process $winrarExe -ArgumentList "/S" -PassThru
+                            if (-not $p.WaitForExit(120000)) {
+                                $p.Kill()
+                                Write-Host "    [fallback] TIMEOUT: instalador demorou mais de 2 min" -ForegroundColor Red
+                            } elseif ($p.ExitCode -eq 0) {
+                                $fallbackInstalled = $true
+                            } else {
+                                Write-Host "    [fallback] Instalador retornou exit code $($p.ExitCode)" -ForegroundColor Red
+                            }
+                            Remove-Item $winrarExe -ErrorAction SilentlyContinue
                         } else {
-                            Write-Host "    [fallback] Instalador retornou exit code $($p.ExitCode)" -ForegroundColor Red
+                            Write-Host "    [fallback] Download falhou ou estourou timeout" -ForegroundColor Red
                         }
-                        Remove-Item $winrarExe -ErrorAction SilentlyContinue
                     } catch {
                         Write-Host "    [fallback] Falha: $($_.Exception.Message)" -ForegroundColor Red
                     }
