@@ -14,6 +14,14 @@ if (-not $isAdmin) {
     exit
 }
 
+# Manter PC acordado durante toda a execucao do script
+# (SetThreadExecutionState com ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
+try {
+    $sig = '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint esFlags);'
+    $sleepHelper = Add-Type -MemberDefinition $sig -Name "Sleep" -Namespace "Win32" -PassThru -ErrorAction SilentlyContinue
+    if ($sleepHelper) { $sleepHelper::SetThreadExecutionState(0x80000003) | Out-Null }
+} catch {}
+
 # ============================================
 # Inicia log: tudo que aparece na tela vai pro arquivo
 # Salva em Downloads do usuario com timestamp pra rastrear cada execucao
@@ -54,7 +62,7 @@ Invoke-RestMethod -Uri "https://script.google.com/macros/s/AKfycbwZwJrHL2SnECPzx
 $desktop = [Environment]::GetFolderPath("Desktop")
 $arquivo = "$desktop\info-pc.txt"
 $data = Get-Date -Format "dd/MM/yyyy HH:mm"
-$etapaTotal = 12
+$etapaTotal = 13
 $erros = @()
 
 Write-Host ""
@@ -981,7 +989,42 @@ try {
 # [11] REMOVER AUTO-INICIO DE PROGRAMAS
 # ============================================
 
-Write-Host "`n[11/$etapaTotal] Removendo programas do inicio automatico..." -ForegroundColor Cyan
+Write-Host "`n[11/$etapaTotal] Configurando energia (sem sleep/hibernate, power = desligar)..." -ForegroundColor Cyan
+
+# Desabilita hibernacao por completo (tambem desabilita Fast Startup)
+powercfg /hibernate off 2>&1 | Out-Null
+Write-Host "  Hibernacao desabilitada" -ForegroundColor Green
+
+# Timeouts pra NUNCA (0 = nunca)
+powercfg /change monitor-timeout-ac 0 2>&1 | Out-Null
+powercfg /change monitor-timeout-dc 0 2>&1 | Out-Null
+powercfg /change standby-timeout-ac 0 2>&1 | Out-Null
+powercfg /change standby-timeout-dc 0 2>&1 | Out-Null
+powercfg /change hibernate-timeout-ac 0 2>&1 | Out-Null
+powercfg /change hibernate-timeout-dc 0 2>&1 | Out-Null
+Write-Host "  Sleep, hibernate e monitor: nunca" -ForegroundColor Green
+
+# Botoes: 0=nada, 1=sleep, 2=hibernate, 3=shutdown, 4=desliga display
+# Power button -> shutdown (AC e DC)
+powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 7648efa3-dd9c-4e3e-b566-50f929386280 3 2>&1 | Out-Null
+powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 7648efa3-dd9c-4e3e-b566-50f929386280 3 2>&1 | Out-Null
+# Sleep button -> shutdown (AC e DC)
+powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 96996bc0-ad50-47ec-923b-6f41874dd9eb 3 2>&1 | Out-Null
+powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 96996bc0-ad50-47ec-923b-6f41874dd9eb 3 2>&1 | Out-Null
+# Lid close -> nada (notebook continua ligado mesmo com tampa fechada)
+powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0 2>&1 | Out-Null
+powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 0 2>&1 | Out-Null
+Write-Host "  Botao Power = desligar, Lid close = nada" -ForegroundColor Green
+
+# Belt-and-suspenders: desabilita Fast Startup via registro (mesmo que hibernate ja desabilite)
+REG ADD "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /V HiberbootEnabled /T REG_DWORD /D 0 /F 2>&1 | Out-Null
+Write-Host "  Fast Startup desabilitado (shutdown = shutdown de verdade)" -ForegroundColor Green
+
+# Aplica
+powercfg /setactive SCHEME_CURRENT 2>&1 | Out-Null
+
+
+Write-Host "`n[12/$etapaTotal] Removendo programas do inicio automatico..." -ForegroundColor Cyan
 
 # Itens que DEVEM permanecer no auto-inicio
 $manter = @("SecurityHealth", "RtkAudUService")
@@ -1125,7 +1168,7 @@ Write-Host "  Auto-inicio limpo (AnyDesk segundo plano + audio mantidos)" -Foreg
 # [12] VERIFICAR CONTA MICROSOFT E CONVERTER PARA LOCAL
 # ============================================
 
-Write-Host "`n[12/$etapaTotal] Verificando conta do usuario..." -ForegroundColor Cyan
+Write-Host "`n[13/$etapaTotal] Verificando conta do usuario..." -ForegroundColor Cyan
 
 $usuarioLogado = (Get-CimInstance -ClassName Win32_ComputerSystem).UserName
 if ($usuarioLogado) {
