@@ -175,6 +175,60 @@ foreach ($mid in $mcafeeIds) {
         Write-Host " nao encontrado" -ForegroundColor Gray
     }
 }
+
+# === Deep clean McAfee residual (WPS + WebAdvisor + tarefas + pastas) ===
+# Cobre o que sobra em OEMs Lenovo/HP/Dell apos o winget uninstall
+Write-Host "  McAfee: limpeza profunda silenciosa..." -ForegroundColor Yellow
+
+# 1. Apagar tarefas agendadas (raiz das notificacoes do McAfee Anti-tracker, Health Check, etc)
+$tasksRemoved = 0
+Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -like "*McAfee*" -or $_.TaskPath -like "*McAfee*" } | ForEach-Object {
+    try {
+        Unregister-ScheduledTask -TaskName $_.TaskName -TaskPath $_.TaskPath -Confirm:$false -ErrorAction Stop
+        $tasksRemoved++
+    } catch {}
+}
+if ($tasksRemoved -gt 0) { Write-Host "    $tasksRemoved tarefa(s) agendada(s) apagada(s)" -ForegroundColor DarkGray }
+
+# 2. Rodar UninstallString do registro (silencioso, janela escondida)
+$uninstKeys = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+)
+$found = Get-ItemProperty $uninstKeys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*McAfee*" }
+foreach ($app in $found) {
+    $unins = $app.QuietUninstallString
+    if (-not $unins) { $unins = $app.UninstallString }
+    if ($unins) {
+        try {
+            if ($unins -match '^"([^"]+)"\s*(.*)$') { $exe = $matches[1]; $argStr = $matches[2] }
+            else { $tk = $unins -split ' ',2; $exe = $tk[0]; $argStr = if ($tk.Count -gt 1) { $tk[1] } else { '' } }
+            if ($argStr -notmatch '/quiet|/qn|/silent|/S\b') { $argStr = "$argStr /quiet /norestart" }
+            if (Test-Path $exe) {
+                $p = Start-Process -FilePath $exe -ArgumentList $argStr -WindowStyle Hidden -PassThru -ErrorAction SilentlyContinue
+                if ($p) {
+                    if (-not $p.WaitForExit(180000)) { try { $p.Kill() } catch {} }
+                    Write-Host "    desinstalado: $($app.DisplayName)" -ForegroundColor DarkGray
+                }
+            }
+        } catch {}
+    }
+}
+
+# 3. Apagar pastas residuais
+$mcafeePaths = @("$env:ProgramFiles\McAfee","${env:ProgramFiles(x86)}\McAfee","$env:ProgramData\McAfee","$env:LOCALAPPDATA\McAfee","$env:APPDATA\McAfee")
+foreach ($p in $mcafeePaths) {
+    if (Test-Path $p) {
+        Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# 4. Remover servico WebAdvisor residual via sc.exe
+if (Get-Service -Name "McAfee WebAdvisor" -ErrorAction SilentlyContinue) {
+    Start-Process sc.exe -ArgumentList "delete `"McAfee WebAdvisor`"" -WindowStyle Hidden -Wait -ErrorAction SilentlyContinue | Out-Null
+    Write-Host "    servico McAfee WebAdvisor removido" -ForegroundColor DarkGray
+}
+
 Write-Host "  McAfee: concluido" -ForegroundColor Green
 
 # Matar TUDO via taskkill (nao trava em processos protegidos)
