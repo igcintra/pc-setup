@@ -14,6 +14,34 @@ if (-not $isAdmin) {
     exit
 }
 
+# ============================================
+# Inicia log: tudo que aparece na tela vai pro arquivo
+# Salva em Downloads do usuario com timestamp pra rastrear cada execucao
+# ============================================
+$logTimestamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
+$logPath = "$env:USERPROFILE\Downloads\pc-setup-log_$logTimestamp.txt"
+try {
+    Start-Transcript -Path $logPath -Force -ErrorAction Stop | Out-Null
+    $logAtivo = $true
+} catch { $logAtivo = $false }
+
+Write-Host "========================================" -ForegroundColor DarkGray
+Write-Host "  PC SETUP - LOG INICIADO" -ForegroundColor DarkGray
+Write-Host "  $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')" -ForegroundColor DarkGray
+if ($logAtivo) { Write-Host "  Log: $logPath" -ForegroundColor DarkGray }
+Write-Host "  PC: $env:COMPUTERNAME | User: $env:USERNAME" -ForegroundColor DarkGray
+try {
+    $os = Get-CimInstance Win32_OperatingSystem
+    Write-Host "  OS: $($os.Caption) (build $($os.BuildNumber))" -ForegroundColor DarkGray
+} catch {}
+try {
+    $cs = Get-CimInstance Win32_ComputerSystem
+    Write-Host "  HW: $($cs.Manufacturer) $($cs.Model)" -ForegroundColor DarkGray
+} catch {}
+Write-Host "  PSVersion: $($PSVersionTable.PSVersion)" -ForegroundColor DarkGray
+Write-Host "========================================" -ForegroundColor DarkGray
+Write-Host ""
+
 # Corrigir DNS para evitar falha de resolucao de nomes
 Get-NetAdapter | Where-Object { $_.Status -eq 'Up' } | ForEach-Object {
     Set-DnsClientServerAddress -InterfaceIndex $_.ifIndex -ServerAddresses ("8.8.8.8","8.8.4.4") -ErrorAction SilentlyContinue
@@ -1127,6 +1155,17 @@ if ($usuarioLogado) {
     }
 } else {
     Write-Host "  Nao foi possivel identificar o usuario" -ForegroundColor Yellow
+}
+
+# Fecha o transcript do log antes do pause
+if ($logAtivo) {
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor DarkGray
+    Write-Host "  LOG SALVO EM:" -ForegroundColor Green
+    Write-Host "  $logPath" -ForegroundColor Green
+    Write-Host "  (Se algo der errado, mande esse arquivo para diagnostico)" -ForegroundColor DarkGray
+    Write-Host "========================================" -ForegroundColor DarkGray
+    try { Stop-Transcript | Out-Null } catch {}
 }
 
 pause
