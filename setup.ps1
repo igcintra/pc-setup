@@ -477,6 +477,18 @@ if (-not $wingetOk) {
     Write-Host "  Sugestao: instalar manualmente, ou atualizar 'App Installer' pela Microsoft Store." -ForegroundColor Yellow
 }
 
+# Desabilitar fonte msstore (causa erro 0x8a15005e em PCs com cert msstore vencido)
+# Os programas que instalamos so existem na fonte winget, entao msstore nao perde nada
+if ($wingetOk) {
+    try {
+        $msstoreCheck = winget source list 2>&1 | Out-String
+        if ($msstoreCheck -match "msstore") {
+            winget source remove msstore 2>&1 | Out-Null
+            Write-Host "  Fonte msstore desabilitada (workaround pra cert vencido)" -ForegroundColor DarkGray
+        }
+    } catch {}
+}
+
 foreach ($prog in $programas) {
     $atual++
     Write-Host "  [$atual/$total] $($prog.nome)..." -ForegroundColor Yellow -NoNewline
