@@ -74,6 +74,28 @@ Write-Host "=========================================" -ForegroundColor Cyan
 # [1] COLETA DE INFORMACOES
 # ============================================
 
+
+# ==== CHECKPOINT / RETOMADA (add automatico) ====
+$ckptDir  = "$env:ProgramData\pc-setup"
+$ckptFile = "$ckptDir\state.txt"
+function Get-Step {
+    if (Test-Path $ckptFile) {
+        $v = (Get-Content $ckptFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if ($v -match '^\d+$') { return [int]$v }
+    }
+    return 0
+}
+function Save-Step([int]$n) {
+    try {
+        if (-not (Test-Path $ckptDir)) { New-Item -ItemType Directory -Path $ckptDir -Force | Out-Null }
+        Set-Content -Path $ckptFile -Value $n -Encoding ASCII
+    } catch {}
+}
+$lastStep = Get-Step
+if ($lastStep -gt 0) { Write-Host "`n>>> Retomando a partir da etapa $($lastStep + 1) (checkpoint encontrado em $ckptFile)." -ForegroundColor Magenta }
+# defaults p/ o relatorio (etapa 7) nao quebrar se etapas foram puladas na retomada
+$removidos = @(); $bitlockerStatus = "N/D"; $adminStatus = "N/D"; $instalados = @()
+# ================================================
 Write-Host "`n[1/$etapaTotal] Coletando informacoes do PC..." -ForegroundColor Cyan
 
 $serial = (Get-CimInstance -ClassName Win32_BIOS).SerialNumber
@@ -95,6 +117,7 @@ Write-Host "  OK" -ForegroundColor Green
 # [2] REMOVER BLOATWARE
 # ============================================
 
+if ($lastStep -lt 2) {   # <<CKPT-OPEN 2>>
 Write-Host "`n[2/$etapaTotal] Removendo bloatware..." -ForegroundColor Cyan
 
 # Derrubar processos que podem interferir na remocao
@@ -315,6 +338,9 @@ if ($removidos.Count -eq 0) {
 # [3] DESATIVAR BITLOCKER
 # ============================================
 
+Save-Step 2
+}   # <<CKPT-CLOSE 2>>
+if ($lastStep -lt 3) {   # <<CKPT-OPEN 3>>
 Write-Host "`n[3/$etapaTotal] Verificando BitLocker..." -ForegroundColor Cyan
 $bitlockerStatus = ""
 try {
@@ -338,6 +364,9 @@ try {
 # [4] CRIAR USUARIO ADMIN
 # ============================================
 
+Save-Step 3
+}   # <<CKPT-CLOSE 3>>
+if ($lastStep -lt 4) {   # <<CKPT-OPEN 4>>
 Write-Host "`n[4/$etapaTotal] Criando usuario Admin..." -ForegroundColor Cyan
 $usuarioExiste = Get-LocalUser -Name "Admin" -ErrorAction SilentlyContinue
 if ($usuarioExiste) {
@@ -362,6 +391,9 @@ if ($usuarioExiste) {
 # [5] INSTALAR PROGRAMAS (ultima versao)
 # ============================================
 
+Save-Step 4
+}   # <<CKPT-CLOSE 4>>
+if ($lastStep -lt 5) {   # <<CKPT-OPEN 5>>
 Write-Host "`n[5/$etapaTotal] Instalando programas..." -ForegroundColor Cyan
 
 $programas = @(
@@ -608,7 +640,7 @@ foreach ($prog in $programas) {
     }
 }
 
-# AnyDesk - baixa e abre instalador (precisa clicar em Instalar)
+# AnyDesk - instala em modo SILENCIOSO (sem abrir a GUI / sem clique manual)
 $atual++
 Write-Host "  [$atual/$total] AnyDesk..." -ForegroundColor Yellow -NoNewline
 $anydeskServico = Get-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
@@ -620,25 +652,31 @@ if ($anydeskServico) {
         $anydeskUrl = "https://github.com/igcintra/pc-setup/releases/download/v1.0/AnyDesk.exe"
         $anydeskTemp = "$env:TEMP\AnyDesk.exe"
         Invoke-WebRequest -Uri $anydeskUrl -OutFile $anydeskTemp -ErrorAction Stop
-        Write-Host ""
-        Write-Host ""
-        Write-Host "  ============================================" -ForegroundColor Yellow
-        Write-Host "  ATENCAO: AnyDesk vai abrir." -ForegroundColor Yellow
-        Write-Host "  Clique em 'Instalar AnyDesk' no programa." -ForegroundColor Yellow
-        Write-Host "  Depois feche a janela do AnyDesk." -ForegroundColor Yellow
-        Write-Host "  O script continua automaticamente." -ForegroundColor Yellow
-        Write-Host "  ============================================" -ForegroundColor Yellow
-        Write-Host ""
-        Start-Process $anydeskTemp -Wait
-        Remove-Item $anydeskTemp -Force -ErrorAction SilentlyContinue
-        # Verificar se instalou como servico
-        Start-Sleep -Seconds 3
+        # 1) Tenta instalacao SILENCIOSA via CLI (precisa admin; --start-with-win registra o servico).
+        $adDir = "${env:ProgramFiles(x86)}\AnyDesk"
+        $adArgs = "--install `"$adDir`" --start-with-win --create-desktop-icon --create-start-menu-links --silent"
+        Start-Process $anydeskTemp -ArgumentList $adArgs -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 5
         $anydeskServico = Get-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
+        # 2) FALLBACK: se o silencioso NAO registrou o servico (ja aconteceu antes), abre a GUI p/ clique manual.
+        if (-not $anydeskServico) {
+            Write-Host ""
+            Write-Host "  ============================================" -ForegroundColor Yellow
+            Write-Host "  Silencioso nao registrou o servico." -ForegroundColor Yellow
+            Write-Host "  AnyDesk vai abrir: clique em 'Instalar AnyDesk'" -ForegroundColor Yellow
+            Write-Host "  e depois feche a janela. O script continua." -ForegroundColor Yellow
+            Write-Host "  ============================================" -ForegroundColor Yellow
+            Write-Host ""
+            Start-Process $anydeskTemp -Wait
+            Start-Sleep -Seconds 3
+            $anydeskServico = Get-Service -Name "AnyDesk" -ErrorAction SilentlyContinue
+        }
+        Remove-Item $anydeskTemp -Force -ErrorAction SilentlyContinue
         if ($anydeskServico) {
-            Write-Host "  AnyDesk instalado com sucesso!" -ForegroundColor Green
+            Write-Host " Instalado" -ForegroundColor Green
             $instalados += "AnyDesk - Instalado"
         } else {
-            Write-Host "  AnyDesk pode nao ter sido instalado corretamente" -ForegroundColor Yellow
+            Write-Host " Verificar manualmente" -ForegroundColor Yellow
             $instalados += "AnyDesk - Verificar manualmente"
         }
     } catch {
@@ -688,6 +726,9 @@ if (Test-Path $keepassExe) {
 # [6] INSTALAR OPENVPN 2.4.7 (versao fixa)
 # ============================================
 
+Save-Step 5
+}   # <<CKPT-CLOSE 5>>
+if ($lastStep -lt 6) {   # <<CKPT-OPEN 6>>
 Write-Host "`n[6/$etapaTotal] Instalando OpenVPN 2.4.7..." -ForegroundColor Cyan
 
 $openvpnUrl = "https://github.com/igcintra/pc-setup/releases/download/v1.0/openvpn-install-2.4.7-I607-Win10.exe"
@@ -744,6 +785,9 @@ try {
 # [7] GERAR RELATORIO
 # ============================================
 
+Save-Step 6
+}   # <<CKPT-CLOSE 6>>
+if ($lastStep -lt 7) {   # <<CKPT-OPEN 7>>
 Write-Host "`n[7/$etapaTotal] Gerando relatorio..." -ForegroundColor Cyan
 
 $conteudo = @"
@@ -821,6 +865,9 @@ Write-Host $conteudo
 # [8] DESATIVAR NOTIFICACOES DO WINDOWS
 # ============================================
 
+Save-Step 7
+}   # <<CKPT-CLOSE 7>>
+if ($lastStep -lt 8) {   # <<CKPT-OPEN 8>>
 Write-Host "`n[8/$etapaTotal] Desativando notificacoes..." -ForegroundColor Cyan
 
 try {
@@ -874,6 +921,9 @@ try {
 # [9] LIMPAR BARRA DE TAREFAS E FIXAR PROGRAMAS
 # ============================================
 
+Save-Step 8
+}   # <<CKPT-CLOSE 8>>
+if ($lastStep -lt 9) {   # <<CKPT-OPEN 9>>
 Write-Host "`n[9/$etapaTotal] Configurando barra de tarefas..." -ForegroundColor Cyan
 
 try {
@@ -931,25 +981,92 @@ try {
 
     Write-Host "  Menu Iniciar limpo" -ForegroundColor Green
 
+    # ---- BARRA DE TAREFAS: Google Chrome + Explorador de Arquivos ----
+    # Blob 'Favorites' capturado de maquina de referencia (Win11 26100). Ordem: Chrome, Explorer.
     $pinDir = "$env:APPDATA\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar"
     if (Test-Path $pinDir) { Remove-Item "$pinDir\*" -Force -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Path $pinDir -Force | Out-Null
 
-    $taskbandPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband"
-    Remove-Item -Path $taskbandPath -Force -Recurse -ErrorAction SilentlyContinue
-    New-Item -Path $taskbandPath -Force | Out-Null
-
-    # Desafixar Microsoft Edge e Microsoft Store da barra
-    $regPins = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband\AuxilliaryPins"
-    Remove-Item -Path $regPins -Force -Recurse -ErrorAction SilentlyContinue
-
-    # Explorador de Arquivos (unico item fixado)
+    # .lnk com os nomes EXATOS que o blob referencia (senao o pin nao resolve)
     $shell = New-Object -ComObject WScript.Shell
-    $atalho = $shell.CreateShortcut("$pinDir\01-Explorador de Arquivos.lnk")
-    $atalho.TargetPath = "explorer.exe"
-    $atalho.Save()
+    $lnkFE = $shell.CreateShortcut("$pinDir\File Explorer.lnk")
+    $lnkFE.TargetPath = "explorer.exe"
+    $lnkFE.Save()
+    $chromeExe = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
+    if (-not (Test-Path $chromeExe)) { $chromeExe = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe" }
+    if (Test-Path $chromeExe) {
+        $lnkGC = $shell.CreateShortcut("$pinDir\Google Chrome.lnk")
+        $lnkGC.TargetPath = $chromeExe
+        $lnkGC.Save()
+    } else {
+        Write-Host "  (Chrome nao encontrado - o pin do Chrome pode nao resolver)" -ForegroundColor Yellow
+    }
 
-    Write-Host "  Barra limpa (apenas Explorador de Arquivos)" -ForegroundColor Green
+    $taskbandPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Taskband"
+    if (-not (Test-Path $taskbandPath)) { New-Item -Path $taskbandPath -Force | Out-Null }
+    # remover pins auxiliares (Copilot/TFL) e cache de resolucao antigo (Windows reconstroi)
+    Remove-Item -Path "$taskbandPath\AuxilliaryPins" -Force -Recurse -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $taskbandPath -Name "FavoritesResolve" -ErrorAction SilentlyContinue
+
+    $favBytes = [byte[]]@(
+        0x00,0x50,0x01,0x00,0x00,0x3a,0x00,0x1f,0x80,0xc8,0x27,0x34,0x1f,0x10,0x5c,0x10,
+        0x42,0xaa,0x03,0x2e,0xe4,0x52,0x87,0xd6,0x68,0x26,0x00,0x01,0x00,0x26,0x00,0xef,
+        0xbe,0x12,0x00,0x00,0x00,0x2c,0x37,0x9c,0x99,0xf3,0x6e,0xdc,0x01,0x7c,0xa4,0xeb,
+        0xc3,0xf3,0x6e,0xdc,0x01,0xe6,0xd5,0x60,0x87,0x7f,0x09,0xdd,0x01,0x14,0x00,0x56,
+        0x00,0x31,0x00,0x00,0x00,0x00,0x00,0xe1,0x5c,0x8e,0x8b,0x11,0x00,0x54,0x61,0x73,
+        0x6b,0x42,0x61,0x72,0x00,0x40,0x00,0x09,0x00,0x04,0x00,0xef,0xbe,0x91,0x5b,0xf2,
+        0x0a,0xe1,0x5c,0x8f,0x8b,0x2e,0x00,0x00,0x00,0xc8,0x46,0x01,0x00,0x00,0x00,0x0f,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x51,
+        0xbe,0x98,0x00,0x54,0x00,0x61,0x00,0x73,0x00,0x6b,0x00,0x42,0x00,0x61,0x00,0x72,
+        0x00,0x00,0x00,0x16,0x00,0xbe,0x00,0x32,0x00,0xd0,0x08,0x00,0x00,0xe1,0x5c,0x03,
+        0x85,0x20,0x00,0x47,0x4f,0x4f,0x47,0x4c,0x45,0x7e,0x31,0x2e,0x4c,0x4e,0x4b,0x00,
+        0x00,0x54,0x00,0x09,0x00,0x04,0x00,0xef,0xbe,0xe1,0x5c,0x02,0x8c,0xe1,0x5c,0x02,
+        0x8c,0x2e,0x00,0x00,0x00,0x85,0xa8,0x00,0x00,0x00,0x00,0x1f,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xb9,0x9e,0x98,0x00,0x47,
+        0x00,0x6f,0x00,0x6f,0x00,0x67,0x00,0x6c,0x00,0x65,0x00,0x20,0x00,0x43,0x00,0x68,
+        0x00,0x72,0x00,0x6f,0x00,0x6d,0x00,0x65,0x00,0x2e,0x00,0x6c,0x00,0x6e,0x00,0x6b,
+        0x00,0x00,0x00,0x1c,0x00,0x12,0x00,0x00,0x00,0x2b,0x00,0xef,0xbe,0xe6,0xd5,0x60,
+        0x87,0x7f,0x09,0xdd,0x01,0x1c,0x00,0x1a,0x00,0x00,0x00,0x1d,0x00,0xef,0xbe,0x02,
+        0x00,0x43,0x00,0x68,0x00,0x72,0x00,0x6f,0x00,0x6d,0x00,0x65,0x00,0x00,0x00,0x1c,
+        0x00,0x22,0x00,0x00,0x00,0x1e,0x00,0xef,0xbe,0x02,0x00,0x55,0x00,0x73,0x00,0x65,
+        0x00,0x72,0x00,0x50,0x00,0x69,0x00,0x6e,0x00,0x6e,0x00,0x65,0x00,0x64,0x00,0x00,
+        0x00,0x1c,0x00,0x00,0x00,0x00,0xa0,0x01,0x00,0x00,0x3a,0x00,0x1f,0x80,0xc8,0x27,
+        0x34,0x1f,0x10,0x5c,0x10,0x42,0xaa,0x03,0x2e,0xe4,0x52,0x87,0xd6,0x68,0x26,0x00,
+        0x01,0x00,0x26,0x00,0xef,0xbe,0x12,0x00,0x00,0x00,0x2c,0x37,0x9c,0x99,0xf3,0x6e,
+        0xdc,0x01,0x7c,0xa4,0xeb,0xc3,0xf3,0x6e,0xdc,0x01,0x31,0xbf,0x58,0x8b,0x7f,0x09,
+        0xdd,0x01,0x14,0x00,0x56,0x00,0x31,0x00,0x00,0x00,0x00,0x00,0xe1,0x5c,0x05,0x8c,
+        0x11,0x00,0x54,0x61,0x73,0x6b,0x42,0x61,0x72,0x00,0x40,0x00,0x09,0x00,0x04,0x00,
+        0xef,0xbe,0x91,0x5b,0xf2,0x0a,0xe1,0x5c,0x05,0x8c,0x2e,0x00,0x00,0x00,0xc8,0x46,
+        0x01,0x00,0x00,0x00,0x0f,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+        0x00,0x00,0x00,0x00,0x81,0x3b,0x56,0x00,0x54,0x00,0x61,0x00,0x73,0x00,0x6b,0x00,
+        0x42,0x00,0x61,0x00,0x72,0x00,0x00,0x00,0x16,0x00,0x0e,0x01,0x32,0x00,0x97,0x01,
+        0x00,0x00,0x81,0x58,0xc4,0x3a,0x20,0x00,0x46,0x49,0x4c,0x45,0x45,0x58,0x7e,0x31,
+        0x2e,0x4c,0x4e,0x4b,0x00,0x00,0x7c,0x00,0x09,0x00,0x04,0x00,0xef,0xbe,0xe1,0x5c,
+        0x05,0x8c,0xe1,0x5c,0x05,0x8c,0x2e,0x00,0x00,0x00,0xa9,0x81,0x02,0x00,0x00,0x00,
+        0x07,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x52,0x00,0x00,0x00,0x00,0x00,
+        0xdb,0xdc,0x91,0x00,0x46,0x00,0x69,0x00,0x6c,0x00,0x65,0x00,0x20,0x00,0x45,0x00,
+        0x78,0x00,0x70,0x00,0x6c,0x00,0x6f,0x00,0x72,0x00,0x65,0x00,0x72,0x00,0x2e,0x00,
+        0x6c,0x00,0x6e,0x00,0x6b,0x00,0x00,0x00,0x40,0x00,0x73,0x00,0x68,0x00,0x65,0x00,
+        0x6c,0x00,0x6c,0x00,0x33,0x00,0x32,0x00,0x2e,0x00,0x64,0x00,0x6c,0x00,0x6c,0x00,
+        0x2c,0x00,0x2d,0x00,0x32,0x00,0x32,0x00,0x30,0x00,0x36,0x00,0x37,0x00,0x00,0x00,
+        0x1c,0x00,0x12,0x00,0x00,0x00,0x2b,0x00,0xef,0xbe,0x0a,0xa0,0x59,0x8b,0x7f,0x09,
+        0xdd,0x01,0x1c,0x00,0x42,0x00,0x00,0x00,0x1d,0x00,0xef,0xbe,0x02,0x00,0x4d,0x00,
+        0x69,0x00,0x63,0x00,0x72,0x00,0x6f,0x00,0x73,0x00,0x6f,0x00,0x66,0x00,0x74,0x00,
+        0x2e,0x00,0x57,0x00,0x69,0x00,0x6e,0x00,0x64,0x00,0x6f,0x00,0x77,0x00,0x73,0x00,
+        0x2e,0x00,0x45,0x00,0x78,0x00,0x70,0x00,0x6c,0x00,0x6f,0x00,0x72,0x00,0x65,0x00,
+        0x72,0x00,0x00,0x00,0x1c,0x00,0x22,0x00,0x00,0x00,0x1e,0x00,0xef,0xbe,0x02,0x00,
+        0x55,0x00,0x73,0x00,0x65,0x00,0x72,0x00,0x50,0x00,0x69,0x00,0x6e,0x00,0x6e,0x00,
+        0x65,0x00,0x64,0x00,0x00,0x00,0x1c,0x00,0x00,0x00,0xff
+    )
+    Set-ItemProperty -Path $taskbandPath -Name "Favorites" -Value $favBytes -Type Binary
+    Set-ItemProperty -Path $taskbandPath -Name "FavoritesVersion" -Value 3 -Type DWord -ErrorAction SilentlyContinue
+
+    # reiniciar o explorer p/ aplicar a barra
+    Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    if (-not (Get-Process -Name explorer -ErrorAction SilentlyContinue)) { Start-Process explorer.exe }
+
+    Write-Host "  Barra padronizada (Google Chrome + Explorador de Arquivos)" -ForegroundColor Green
 } catch {
     Write-Host "  ERRO" -ForegroundColor Red
 }
@@ -958,6 +1075,9 @@ try {
 # [10] WALLPAPER IG NETWORKS
 # ============================================
 
+Save-Step 9
+}   # <<CKPT-CLOSE 9>>
+if ($lastStep -lt 10) {   # <<CKPT-OPEN 10>>
 Write-Host "`n[10/$etapaTotal] Configurando wallpaper..." -ForegroundColor Cyan
 
 try {
@@ -989,6 +1109,9 @@ try {
 # [11] REMOVER AUTO-INICIO DE PROGRAMAS
 # ============================================
 
+Save-Step 10
+}   # <<CKPT-CLOSE 10>>
+if ($lastStep -lt 11) {   # <<CKPT-OPEN 11>>
 Write-Host "`n[11/$etapaTotal] Configurando energia..." -ForegroundColor Cyan
 
 # AC (carregador): nada apaga / nao dorme
@@ -1041,6 +1164,9 @@ try {
 powercfg /setactive SCHEME_CURRENT 2>&1 | Out-Null
 
 
+Save-Step 11
+}   # <<CKPT-CLOSE 11>>
+if ($lastStep -lt 12) {   # <<CKPT-OPEN 12>>
 Write-Host "`n[12/$etapaTotal] Removendo programas do inicio automatico..." -ForegroundColor Cyan
 
 # Itens que DEVEM permanecer no auto-inicio
@@ -1185,6 +1311,9 @@ Write-Host "  Auto-inicio limpo (AnyDesk segundo plano + audio mantidos)" -Foreg
 # [12] VERIFICAR CONTA MICROSOFT E CONVERTER PARA LOCAL
 # ============================================
 
+Save-Step 12
+}   # <<CKPT-CLOSE 12>>
+if ($lastStep -lt 13) {   # <<CKPT-OPEN 13>>
 Write-Host "`n[13/$etapaTotal] Verificando conta do usuario..." -ForegroundColor Cyan
 
 $usuarioLogado = (Get-CimInstance -ClassName Win32_ComputerSystem).UserName
@@ -1229,6 +1358,8 @@ if ($usuarioLogado) {
     Write-Host "  Nao foi possivel identificar o usuario" -ForegroundColor Yellow
 }
 
+Save-Step 13
+}   # <<CKPT-CLOSE 13>>
 # Fecha o transcript do log antes do pause
 if ($logAtivo) {
     Write-Host ""
@@ -1240,4 +1371,6 @@ if ($logAtivo) {
     try { Stop-Transcript | Out-Null } catch {}
 }
 
+# checkpoint concluido -> limpar p/ proxima maquina comecar do zero
+try { Remove-Item $ckptFile -Force -ErrorAction SilentlyContinue } catch {}
 pause
