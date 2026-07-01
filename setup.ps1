@@ -529,114 +529,109 @@ if ($wingetOk) {
     } catch {}
 }
 
+# Fallback de download direto (independente do winget) - por programa. Retorna $true se instalou.
+function Install-Fallback {
+    param([string]$Id)
+    switch ($Id) {
+        'Google.Chrome' {
+            try {
+                Write-Host "    [fallback] Baixando Chrome MSI direto do Google (timeout 4 min)..." -ForegroundColor DarkYellow
+                $f = "$env:TEMP\chrome_installer.msi"
+                if (Test-Path $f) { Remove-Item $f -Force -ErrorAction SilentlyContinue }
+                if (Download-File "https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi" $f 240) {
+                    $p = Start-Process "msiexec.exe" -ArgumentList "/i `"$f`" /qn /norestart" -PassThru
+                    if (-not $p.WaitForExit(180000)) { $p.Kill(); return $false }
+                    $ok = ($p.ExitCode -eq 0); Remove-Item $f -Force -ErrorAction SilentlyContinue; return $ok
+                }
+            } catch {}
+            return $false
+        }
+        'RARLab.WinRAR' {
+            try {
+                Write-Host "    [fallback] Baixando WinRAR direto do RARLab (timeout 2 min)..." -ForegroundColor DarkYellow
+                $f = "$env:TEMP\winrar_installer.exe"
+                if (Test-Path $f) { Remove-Item $f -Force -ErrorAction SilentlyContinue }
+                if (Download-File "https://www.rarlab.com/rar/winrar-x64-711br.exe" $f 120) {
+                    $p = Start-Process $f -ArgumentList "/S" -PassThru
+                    if (-not $p.WaitForExit(120000)) { $p.Kill(); return $false }
+                    $ok = ($p.ExitCode -eq 0); Remove-Item $f -Force -ErrorAction SilentlyContinue; return $ok
+                }
+            } catch {}
+            return $false
+        }
+        'DominikReichl.KeePass' {
+            try {
+                Write-Host "    [fallback] Baixando KeePass 2 direto (SourceForge, timeout 3 min)..." -ForegroundColor DarkYellow
+                $f = "$env:TEMP\keepass_setup.exe"
+                if (Test-Path $f) { Remove-Item $f -Force -ErrorAction SilentlyContinue }
+                if (Download-File "https://sourceforge.net/projects/keepass/files/KeePass%202.x/2.57.1/KeePass-2.57.1-Setup.exe/download" $f 180) {
+                    $p = Start-Process $f -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -PassThru
+                    if (-not $p.WaitForExit(120000)) { $p.Kill(); return $false }
+                    $ok = ($p.ExitCode -eq 0); Remove-Item $f -Force -ErrorAction SilentlyContinue; return $ok
+                }
+            } catch {}
+            return $false
+        }
+        'SlackTechnologies.Slack' {
+            try {
+                Write-Host "    [fallback] Baixando Slack MSI direto (timeout 3 min)..." -ForegroundColor DarkYellow
+                $f = "$env:TEMP\slack_setup.msi"
+                if (Test-Path $f) { Remove-Item $f -Force -ErrorAction SilentlyContinue }
+                if (Download-File "https://slack.com/ssb/download-win64-msi" $f 180) {
+                    $p = Start-Process "msiexec.exe" -ArgumentList "/i `"$f`" /qn /norestart" -PassThru
+                    if (-not $p.WaitForExit(180000)) { $p.Kill(); return $false }
+                    $ok = ($p.ExitCode -eq 0); Remove-Item $f -Force -ErrorAction SilentlyContinue; return $ok
+                }
+            } catch {}
+            return $false
+        }
+    }
+    return $false
+}
+
 foreach ($prog in $programas) {
     $atual++
     Write-Host "  [$atual/$total] $($prog.nome)..." -ForegroundColor Yellow -NoNewline
 
-    if (-not $wingetOk) {
-        Write-Host " PULADO (winget indisponivel)" -ForegroundColor Red
-        $instalados += "$($prog.nome) - PULADO (winget indisponivel)"
-        $erros += $prog.nome
+    $installed = $false
+    $viaTxt = ""
+
+    # 1) winget (se funcional)
+    if ($wingetOk) {
+        $resultado = winget install --id $prog.id -e --accept-source-agreements --accept-package-agreements --silent 2>&1
+        $code = $LASTEXITCODE
+        if ($code -eq 0) {
+            $installed = $true; $viaTxt = "Instalado"
+        } elseif ($resultado -match "already installed|ja esta instalado") {
+            Write-Host " Ja instalado" -ForegroundColor Gray
+            $instalados += "$($prog.nome) - Ja instalado"
+            continue
+        } else {
+            $resultado2 = winget install --id $prog.id -e --source winget --accept-source-agreements --accept-package-agreements --silent 2>&1
+            if ($LASTEXITCODE -eq 0) { $installed = $true; $viaTxt = "Instalado (retry)" }
+        }
+    }
+
+    if ($installed) {
+        Write-Host " OK" -ForegroundColor Green
+        $instalados += "$($prog.nome) - $viaTxt"
         continue
     }
 
-    $resultado = winget install --id $prog.id -e --accept-source-agreements --accept-package-agreements --silent 2>&1
-    $code = $LASTEXITCODE
-
-    if ($code -eq 0) {
-        Write-Host " OK" -ForegroundColor Green
-        $instalados += "$($prog.nome) - Instalado"
-    } elseif ($resultado -match "already installed|ja esta instalado") {
-        Write-Host " Ja instalado" -ForegroundColor Gray
-        $instalados += "$($prog.nome) - Ja instalado"
+    # 2) fallback download direto (roda com winget indisponivel OU winget que falhou)
+    Write-Host ""   # quebra a linha do NoNewline
+    if (-not $wingetOk) {
+        Write-Host "    [fallback] winget indisponivel -> tentando download direto..." -ForegroundColor DarkYellow
     } else {
-        # Tenta uma vez mais com --source winget explicito (resolve casos onde a fonte msstore esta com erro)
-        $resultado2 = winget install --id $prog.id -e --source winget --accept-source-agreements --accept-package-agreements --silent 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host " OK (retry com source winget)" -ForegroundColor Green
-            $instalados += "$($prog.nome) - Instalado (retry)"
-        } else {
-            # Fallback especifico por programa: download direto do site oficial
-            $fallbackInstalled = $false
-            $fallbackTried = $false  # marca se mostramos mensagens de progresso (quebra a linha "...")
-
-            switch ($prog.id) {
-                'Google.Chrome' {
-                    $fallbackTried = $true
-                    Write-Host ""  # quebra a linha do NoNewline anterior
-                    try {
-                        Write-Host "    [fallback] Baixando Chrome MSI direto do Google (timeout 4 min)..." -ForegroundColor DarkYellow
-                        $chromeMsi = "$env:TEMP\chrome_installer.msi"
-                        if (Test-Path $chromeMsi) { Remove-Item $chromeMsi -Force -ErrorAction SilentlyContinue }
-                        if (Download-File "https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi" $chromeMsi 240) {
-                            $sizeMB = [math]::Round((Get-Item $chromeMsi).Length / 1MB, 1)
-                            Write-Host "    [fallback] Download OK ($sizeMB MB). Instalando MSI (timeout 3 min)..." -ForegroundColor DarkYellow
-                            $p = Start-Process "msiexec.exe" -ArgumentList "/i `"$chromeMsi`" /qn /norestart" -PassThru
-                            if (-not $p.WaitForExit(180000)) {
-                                $p.Kill()
-                                Write-Host "    [fallback] TIMEOUT: msiexec demorou mais de 3 min, processo encerrado" -ForegroundColor Red
-                            } elseif ($p.ExitCode -eq 0) {
-                                $fallbackInstalled = $true
-                            } else {
-                                Write-Host "    [fallback] msiexec retornou exit code $($p.ExitCode)" -ForegroundColor Red
-                            }
-                            Remove-Item $chromeMsi -ErrorAction SilentlyContinue
-                        } else {
-                            Write-Host "    [fallback] Download falhou ou estourou timeout" -ForegroundColor Red
-                        }
-                    } catch {
-                        Write-Host "    [fallback] Falha: $($_.Exception.Message)" -ForegroundColor Red
-                    }
-                }
-                'RARLab.WinRAR' {
-                    $fallbackTried = $true
-                    Write-Host ""
-                    try {
-                        Write-Host "    [fallback] Baixando WinRAR direto do RARLab (timeout 2 min)..." -ForegroundColor DarkYellow
-                        $winrarExe = "$env:TEMP\winrar_installer.exe"
-                        if (Test-Path $winrarExe) { Remove-Item $winrarExe -Force -ErrorAction SilentlyContinue }
-                        if (Download-File "https://www.rarlab.com/rar/winrar-x64-711br.exe" $winrarExe 120) {
-                            $sizeMB = [math]::Round((Get-Item $winrarExe).Length / 1MB, 1)
-                            Write-Host "    [fallback] Download OK ($sizeMB MB). Instalando (timeout 2 min)..." -ForegroundColor DarkYellow
-                            $p = Start-Process $winrarExe -ArgumentList "/S" -PassThru
-                            if (-not $p.WaitForExit(120000)) {
-                                $p.Kill()
-                                Write-Host "    [fallback] TIMEOUT: instalador demorou mais de 2 min" -ForegroundColor Red
-                            } elseif ($p.ExitCode -eq 0) {
-                                $fallbackInstalled = $true
-                            } else {
-                                Write-Host "    [fallback] Instalador retornou exit code $($p.ExitCode)" -ForegroundColor Red
-                            }
-                            Remove-Item $winrarExe -ErrorAction SilentlyContinue
-                        } else {
-                            Write-Host "    [fallback] Download falhou ou estourou timeout" -ForegroundColor Red
-                        }
-                    } catch {
-                        Write-Host "    [fallback] Falha: $($_.Exception.Message)" -ForegroundColor Red
-                    }
-                }
-            }
-
-            if ($fallbackInstalled) {
-                if ($fallbackTried) {
-                    Write-Host "    [fallback] => OK" -ForegroundColor Green
-                } else {
-                    Write-Host " OK (fallback direto)" -ForegroundColor Green
-                }
-                $instalados += "$($prog.nome) - Instalado (fallback)"
-            } else {
-                $errMsg = ($resultado -join " ") -replace "\s+", " "
-                if ($errMsg.Length -gt 250) { $errMsg = $errMsg.Substring(0, 250) + "..." }
-                if ($fallbackTried) {
-                    Write-Host "    [fallback] => ERRO (winget exit $code, fallback tambem falhou)" -ForegroundColor Red
-                } else {
-                    Write-Host " ERRO (exit $code)" -ForegroundColor Red
-                }
-                Write-Host "    $errMsg" -ForegroundColor DarkRed
-                $instalados += "$($prog.nome) - ERRO: $errMsg"
-                $erros += $prog.nome
-            }
-        }
+        Write-Host "    [fallback] winget falhou -> tentando download direto..." -ForegroundColor DarkYellow
+    }
+    if (Install-Fallback $prog.id) {
+        Write-Host "    [fallback] => OK" -ForegroundColor Green
+        $instalados += "$($prog.nome) - Instalado (fallback direto)"
+    } else {
+        Write-Host "    [fallback] => ERRO (winget indisponivel e fallback falhou)" -ForegroundColor Red
+        $instalados += "$($prog.nome) - ERRO (winget/fallback falharam)"
+        $erros += $prog.nome
     }
 }
 
