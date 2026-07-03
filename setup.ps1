@@ -308,6 +308,34 @@ if (Test-Path $onedrivePath) {
 }
 $p = Start-Process "winget" -ArgumentList "uninstall --id Microsoft.OneDrive -e --silent --force --disable-interactivity" -PassThru -WindowStyle Hidden -ErrorAction SilentlyContinue
 if ($p -and -not $p.WaitForExit(15000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+# --- Remocao COMPLETA do OneDrive (bloquear + tirar do Explorer + desfazer redirecionamento de pastas) ---
+try {
+    # 1) bloquear por politica (impede voltar/rodar)
+    $odPol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\OneDrive"
+    New-Item -Path $odPol -Force -ErrorAction SilentlyContinue | Out-Null
+    Set-ItemProperty -Path $odPol -Name "DisableFileSyncNGSC" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+    # 2) tirar o icone do OneDrive da barra lateral do Explorer
+    foreach ($rt in @("HKCU:\Software\Classes\CLSID","HKCU:\Software\Classes\WOW6432Node\CLSID")) {
+        $k = "$rt\{018D5C66-4533-4307-9B53-224DE2ED1FE6}"
+        New-Item -Path $k -Force -ErrorAction SilentlyContinue | Out-Null
+        Set-ItemProperty -Path $k -Name "System.IsPinnedToNameSpaceTree" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+    }
+    # 3) se o OneDrive redirecionou Pictures/Documents/Desktop (Known Folder Move), voltar pro local
+    $usf = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
+    $map = @{ "My Pictures"="%USERPROFILE%\Pictures"; "Personal"="%USERPROFILE%\Documents"; "Desktop"="%USERPROFILE%\Desktop" }
+    foreach ($nm in $map.Keys) {
+        $cur = (Get-ItemProperty -Path $usf -Name $nm -ErrorAction SilentlyContinue).$nm
+        if ($cur -and $cur -like "*OneDrive*") {
+            New-ItemProperty -Path $usf -Name $nm -Value $map[$nm] -PropertyType ExpandString -Force -ErrorAction SilentlyContinue | Out-Null
+            New-Item -ItemType Directory -Force -Path ([Environment]::ExpandEnvironmentVariables($map[$nm])) -ErrorAction SilentlyContinue | Out-Null
+        }
+    }
+    # 4) apagar a pasta OneDrive residual SE estiver vazia (nao mexe se tiver arquivos)
+    $odFolder = "$env:USERPROFILE\OneDrive"
+    if ((Test-Path $odFolder) -and -not (Get-ChildItem -Force $odFolder -ErrorAction SilentlyContinue)) {
+        Remove-Item $odFolder -Force -Recurse -ErrorAction SilentlyContinue
+    }
+} catch {}
 Write-Host " OK" -ForegroundColor Green
 
 # Teams (timeout 15s)
@@ -1077,7 +1105,10 @@ Write-Host "`n[10/$etapaTotal] Configurando wallpaper..." -ForegroundColor Cyan
 
 try {
     $wpUrl = "https://github.com/igcintra/pc-setup/releases/download/v1.0/IGN.jpg"
-    $wpPath = "$env:USERPROFILE\Pictures\IGN-wallpaper.jpg"
+    # salvar em ProgramData: sempre existe (Pictures pode nao existir ou estar redirecionada p/ OneDrive)
+    $wpDir = "$env:ProgramData\IGNetworks"
+    New-Item -ItemType Directory -Force -Path $wpDir -ErrorAction SilentlyContinue | Out-Null
+    $wpPath = "$wpDir\IGN-wallpaper.jpg"
     Invoke-WebRequest -Uri $wpUrl -OutFile $wpPath -UseBasicParsing -ErrorAction Stop
 
     Add-Type -TypeDefinition @"
