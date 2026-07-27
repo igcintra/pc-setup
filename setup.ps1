@@ -899,10 +899,10 @@ try {
     if (-not (Test-Path $regNotif)) { New-Item -Path $regNotif -Force | Out-Null }
     Set-ItemProperty -Path $regNotif -Name "ToastEnabled" -Value 0 -Type DWord
 
-    # Desativar Central de Notificacoes (painel lateral)
-    $regAction = "HKCU:\Software\Policies\Microsoft\Windows\Explorer"
-    if (-not (Test-Path $regAction)) { New-Item -Path $regAction -Force | Out-Null }
-    Set-ItemProperty -Path $regAction -Name "DisableNotificationCenter" -Value 1 -Type DWord
+    # NAO desativar a Central de Notificacoes (DisableNotificationCenter):
+    # no Win11 o calendario do relogio mora DENTRO dela - a politica mata o clique no relogio.
+    # Os toasts ja ficam mudos pelas outras chaves. Se um setup antigo gravou a politica, remove:
+    Remove-ItemProperty -Path "HKCU:\Software\Policies\Microsoft\Windows\Explorer" -Name "DisableNotificationCenter" -ErrorAction SilentlyContinue
 
     # Desativar toasts na tela de bloqueio, mas MANTER som
     $regLock = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings"
