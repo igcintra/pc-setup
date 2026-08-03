@@ -9,7 +9,7 @@
 #  A parte HKLM precisa de admin — o script avisa se nao tiver.
 #
 #  Uso (PowerShell):
-#    irm https://raw.githubusercontent.com/igcintra/pc-setup/main/restaurar-notificacoes.ps1 | iex
+#    irm https://raw.githubusercontent.com/igcintra/pc-setup/master/restaurar-notificacoes.ps1 | iex
 #  ou local:  powershell -ExecutionPolicy Bypass -File .\restaurar-notificacoes.ps1
 # ============================================================
 
