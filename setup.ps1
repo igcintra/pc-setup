@@ -885,26 +885,31 @@ Write-Host ""
 Write-Host $conteudo
 
 # ============================================
-# [8] DESATIVAR NOTIFICACOES DO WINDOWS
+# [8] AJUSTAR NOTIFICACOES: cala PROPAGANDA da Microsoft,
+#     mas MANTEM os toasts dos apps (Slack/Teams/Outlook).
+#     Mudado em 03/08/2026: antes desativava os toasts em geral e isso
+#     calava o Slack (caso pleao). Ver restaurar-notificacoes.ps1.
 # ============================================
 
 Save-Step 7
 }   # <<CKPT-CLOSE 7>>
 if ($lastStep -lt 8) {   # <<CKPT-OPEN 8>>
-Write-Host "`n[8/$etapaTotal] Desativando notificacoes..." -ForegroundColor Cyan
+Write-Host "`n[8/$etapaTotal] Ajustando notificacoes (sem propaganda, apps mantidos)..." -ForegroundColor Cyan
 
 try {
-    # Desativar toasts (baloes popup) mas MANTER sons dos apps
+    # Toasts dos APPS ficam LIGADOS (Slack/Teams/Outlook precisam disso).
+    # Setamos =1 de proposito: corrige PC que rodou a versao antiga do setup.
     $regNotif = "HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications"
     if (-not (Test-Path $regNotif)) { New-Item -Path $regNotif -Force | Out-Null }
-    Set-ItemProperty -Path $regNotif -Name "ToastEnabled" -Value 0 -Type DWord
+    Set-ItemProperty -Path $regNotif -Name "ToastEnabled" -Value 1 -Type DWord
 
     # NAO desativar a Central de Notificacoes (DisableNotificationCenter):
     # no Win11 o calendario do relogio mora DENTRO dela - a politica mata o clique no relogio.
     # Os toasts ja ficam mudos pelas outras chaves. Se um setup antigo gravou a politica, remove:
     Remove-ItemProperty -Path "HKCU:\Software\Policies\Microsoft\Windows\Explorer" -Name "DisableNotificationCenter" -ErrorAction SilentlyContinue
 
-    # Desativar toasts na tela de bloqueio, mas MANTER som
+    # Som ON. Toast na TELA DE BLOQUEIO fica OFF por privacidade (mensagem
+    # aparecendo com o PC trancado) — nao afeta notificacao com o usuario logado.
     $regLock = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings"
     if (-not (Test-Path $regLock)) { New-Item -Path $regLock -Force | Out-Null }
     Set-ItemProperty -Path $regLock -Name "NOC_GLOBAL_SETTING_ALLOW_NOTIFICATION_SOUND" -Value 1 -Type DWord
@@ -919,15 +924,17 @@ try {
         Set-ItemProperty -Path $regSugest -Name "SoftLandingEnabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
     }
 
-    # Desativar toasts visuais mas manter som
+    # Toasts globais LIGADOS (=1 tambem conserta PC vindo da versao antiga)
     $regNotifSettings = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings"
     if (-not (Test-Path $regNotifSettings)) { New-Item -Path $regNotifSettings -Force | Out-Null }
-    Set-ItemProperty -Path $regNotifSettings -Name "NOC_GLOBAL_SETTING_TOASTS_ENABLED" -Value 0 -Type DWord
+    Set-ItemProperty -Path $regNotifSettings -Name "NOC_GLOBAL_SETTING_TOASTS_ENABLED" -Value 1 -Type DWord
 
-    # Bloquear toasts via politica
+    # A politica que BLOQUEAVA toast de aplicativo sai de vez (era ela que
+    # calava o Slack mesmo com o resto ligado)
     $regPolicy = "HKCU:\Software\Policies\Microsoft\Windows\CurrentVersion\PushNotifications"
-    if (-not (Test-Path $regPolicy)) { New-Item -Path $regPolicy -Force | Out-Null }
-    Set-ItemProperty -Path $regPolicy -Name "NoToastApplicationNotification" -Value 1 -Type DWord
+    if (Test-Path $regPolicy) {
+        Remove-ItemProperty -Path $regPolicy -Name "NoToastApplicationNotification" -ErrorAction SilentlyContinue
+    }
 
     # Desativar Windows Tips/Sugestoes/Consumer Features
     $regTips = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent"
@@ -935,7 +942,8 @@ try {
     Set-ItemProperty -Path $regTips -Name "DisableSoftLanding" -Value 1 -Type DWord -ErrorAction SilentlyContinue
     Set-ItemProperty -Path $regTips -Name "DisableWindowsConsumerFeatures" -Value 1 -Type DWord -ErrorAction SilentlyContinue
 
-    Write-Host "  Toasts desativados (sons mantidos)" -ForegroundColor Green
+    Write-Host "  Propaganda/dicas da Microsoft desativadas" -ForegroundColor Green
+    Write-Host "  Notificacoes de apps (Slack/Teams/Outlook) MANTIDAS" -ForegroundColor Green
 } catch {
     Write-Host "  ERRO" -ForegroundColor Red
 }
