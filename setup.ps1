@@ -948,6 +948,22 @@ try {
     Write-Host "  ERRO" -ForegroundColor Red
 }
 
+# --- CANAL ESTAVEL DE UPDATES (add 04/08/2026) -------------------------------
+# "Obtenha as atualizacoes mais recentes assim que estiverem disponiveis" (Win11)
+# joga a maquina em build ANTECIPADA. Diagnostico de 3 PCs (Vostro do plara,
+# notebook da drocha e mais um) mostrou o MESMO estrago: build 26200 com
+# componente corrompido da 26100.1591 (userexperience-oobe) -> DISM
+# "reparavel", updates falhando e horas de UTI. Maquina de trabalho vai no
+# canal normal. Funciona em Home e Pro (e a mesma chave do botao da UI).
+try {
+    $regWU = "HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings"
+    if (-not (Test-Path $regWU)) { New-Item -Path $regWU -Force | Out-Null }
+    Set-ItemProperty -Path $regWU -Name "IsContinuousInnovationOptedIn" -Value 0 -Type DWord
+    Write-Host "  Updates antecipados DESATIVADOS (canal estavel)" -ForegroundColor Green
+} catch {
+    Write-Host "  AVISO: nao consegui desativar os updates antecipados" -ForegroundColor Yellow
+}
+
 # ============================================
 # [9] LIMPAR BARRA DE TAREFAS E FIXAR PROGRAMAS
 # ============================================
