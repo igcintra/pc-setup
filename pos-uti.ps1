@@ -88,7 +88,8 @@ Write-Host "`n[6] Adaptadores de rede com problema:" -ForegroundColor Cyan
 $bad = Get-PnpDevice -Class Net -ErrorAction SilentlyContinue | Where-Object { $_.Status -ne 'OK' }
 if ($bad) {
     $bad | ForEach-Object { Write-Host ("    [" + $_.Status + "] " + $_.FriendlyName) -ForegroundColor Yellow }
-    Write-Host "    Acao: atualizar o driver de Wi-Fi (Lenovo Vantage / Dell Command / site do fabricante)." -ForegroundColor Yellow
+    Write-Host "    Acao: se for adaptador de VPN (ExpressVPN/TAP/OpenVPN) e a pessoa nao usa, DESINSTALAR o programa;" -ForegroundColor Yellow
+    Write-Host "    se for Wi-Fi/Ethernet real, atualizar driver (Lenovo Vantage / Dell Command / fabricante)." -ForegroundColor Yellow
 } else { Write-Host "    todos OK" -ForegroundColor Green }
 
 # ---------- 7. canal estavel de updates ----------
