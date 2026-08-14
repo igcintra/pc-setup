@@ -7,47 +7,91 @@ parâmetros extras:
 ?script=verificar-action1&host=NOME-PC&usuario=fulano&veredito=ACHADO|LIMPO&marcadores=registro|programa|log-instalador&guid=xxxx
 ```
 
-Hoje o Apps Script provavelmente só incrementa o contador e ignora o resto. Para gravar
-numa aba própria, edite o projeto do Apps Script (Extensões → Apps Script na planilha) e
-acrescente o trecho abaixo dentro do `doGet`, **antes** do `return`:
+## Código completo do `doGet` (substitui o arquivo inteiro)
+
+Editar em **Extensões → Apps Script** na planilha.
+
+> ⚠️ **Pegadinha que este código já resolve:** o contador original usava
+> `SpreadsheetApp.getActiveSpreadsheet().getActiveSheet()`, e **`insertSheet()` torna a
+> nova aba a ativa**. Se a função nova fosse só acrescentada, na primeira execução o
+> contador passaria a escrever dentro da aba `action1-varredura`. Por isso a referência da
+> aba do contador é capturada **antes** de tudo, e o foco é devolvido depois de criar a aba.
+> A parte nova também vai em `try/catch`, para nunca derrubar o contador dos outros scripts.
 
 ```javascript
 function doGet(e) {
-  var p = (e && e.parameter) ? e.parameter : {};
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var abaContador = ss.getActiveSheet();   // capturado ANTES de qualquer insertSheet()
 
-  // ---- contador existente: NAO MEXER, deixe o codigo que ja esta aqui ----
+  var script = (e && e.parameter && e.parameter.script) ? e.parameter.script : "desconhecido";
 
-  // ---- NOVO: varredura Action1 ----
-  if (p.script === 'verificar-action1') {
-    var ss  = SpreadsheetApp.getActiveSpreadsheet();
-    var aba = ss.getSheetByName('action1-varredura');
-    if (!aba) {
-      aba = ss.insertSheet('action1-varredura');
-      aba.appendRow(['Quando','Computador','Usuario','Veredito','Marcadores','agent.guid']);
-      aba.getRange('A1:F1').setFontWeight('bold').setBackground('#1C4587').setFontColor('#FFFFFF');
-      aba.setFrozenRows(1);
-      aba.setColumnWidths(1, 6, 150);
-    }
-    aba.appendRow([
-      Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm:ss'),
-      p.host       || '',
-      p.usuario    || '',
-      p.veredito   || '',
-      p.marcadores || '',
-      p.guid       || ''
-    ]);
-    // destaca em vermelho a linha de quem acusou
-    if (p.veredito === 'ACHADO') {
-      aba.getRange(aba.getLastRow(), 1, 1, 6).setBackground('#F4CCCC');
+  // ---------------- CONTADOR (comportamento original) ----------------
+  var data  = abaContador.getDataRange().getValues();
+  var achou = false;
+
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] == script) {
+      abaContador.getRange(i + 1, 2).setValue(data[i][1] + 1);
+      abaContador.getRange(i + 1, 3).setValue(new Date().toLocaleString("pt-BR"));
+      achou = true;
+      break;
     }
   }
 
-  return ContentService.createTextOutput('ok');
+  if (!achou) {
+    var novaLinha = data.length + 1;
+    abaContador.getRange(novaLinha, 1).setValue(script);
+    abaContador.getRange(novaLinha, 2).setValue(1);
+    abaContador.getRange(novaLinha, 3).setValue(new Date().toLocaleString("pt-BR"));
+  }
+
+  // ---------------- VARREDURA ACTION1 (aba propria) ----------------
+  try {
+    registrarAction1(e, ss, abaContador);
+  } catch (err) {
+    // se algo falhar aqui, o contador acima ja rodou e nao e afetado
+  }
+
+  return ContentService.createTextOutput("ok");
+}
+
+
+function registrarAction1(e, ss, abaContador) {
+  var p = (e && e.parameter) ? e.parameter : {};
+  if (p.script !== 'verificar-action1') { return; }
+
+  var aba = ss.getSheetByName('action1-varredura');
+
+  if (!aba) {
+    aba = ss.insertSheet('action1-varredura');
+    aba.appendRow(['Quando', 'Computador', 'Usuario', 'Veredito', 'Marcadores', 'agent.guid']);
+    aba.getRange('A1:F1')
+       .setFontWeight('bold')
+       .setBackground('#1C4587')
+       .setFontColor('#FFFFFF');
+    aba.setFrozenRows(1);
+    aba.setColumnWidths(1, 6, 160);
+    ss.setActiveSheet(abaContador);   // devolve o foco, senao o contador quebra
+  }
+
+  aba.appendRow([
+    Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'dd/MM/yyyy HH:mm:ss'),
+    p.host       || '',
+    p.usuario    || '',
+    p.veredito   || '',
+    p.marcadores || '',
+    p.guid       || ''
+  ]);
+
+  if (p.veredito === 'ACHADO') {
+    aba.getRange(aba.getLastRow(), 1, 1, 6).setBackground('#F4CCCC');
+  }
 }
 ```
 
-Depois de colar: **Implantar → Gerenciar implantações → editar → Nova versão**. Sem isso
-o Web App continua servindo o código antigo (pegadinha clássica do Apps Script).
+Depois de colar: **Salvar** → **Implantar → Gerenciar implantações → lápis → Versão: Nova
+versão → Implantar**. Sem isso o Web App continua servindo o código antigo (pegadinha
+clássica do Apps Script, e a causa nº 1 de "o script não funciona").
 
 ## Como acompanhar a varredura
 
