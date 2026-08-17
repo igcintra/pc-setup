@@ -118,97 +118,104 @@ Get-ChildItem $dl -File -Filter *.msi | Where-Object { $_.Name -match 'action1|a
 # Classe SUSPEITO = acesso remoto que NAO faz parte do padrao IGN.
 # ============================================================================
 Etapa 6 "Procurando outros programas de acesso remoto..."
+# a Parte B e' extra: se algo falhar aqui, o veredito do Action1 (Parte A) tem de sair mesmo assim
+try {
 
-$catalogo = @(
-    @{ Nome='AnyDesk';                Rx='anydesk';                            Classe='ESPERADO' },
-    @{ Nome='ScreenConnect/ConnectWise'; Rx='screenconnect|connectwise';       Classe='SUSPEITO' },
-    @{ Nome='Atera';                  Rx='ateraagent|\batera\b';               Classe='SUSPEITO' },
-    @{ Nome='Splashtop';              Rx='splashtop';                          Classe='SUSPEITO' },
-    @{ Nome='NinjaRMM/NinjaOne';      Rx='ninjarmm|ninjaone';                  Classe='SUSPEITO' },
-    @{ Nome='Syncro';                 Rx='syncro(agent|mps)';                  Classe='SUSPEITO' },
-    @{ Nome='Level.io';               Rx='level\.io|level-agent';              Classe='SUSPEITO' },
-    @{ Nome='PDQ Connect';            Rx='pdq ?connect';                       Classe='SUSPEITO' },
-    @{ Nome='Kaseya/VSA';             Rx='kaseya|agentmon';                    Classe='SUSPEITO' },
-    @{ Nome='Tactical RMM';           Rx='tacticalrmm|tacticalagent';          Classe='SUSPEITO' },
-    @{ Nome='RustDesk';               Rx='rustdesk';                           Classe='SUSPEITO' },
-    @{ Nome='MeshCentral/MeshAgent';  Rx='meshagent|meshcentral';              Classe='SUSPEITO' },
-    @{ Nome='DWAgent';                Rx='dwagent';                            Classe='SUSPEITO' },
-    @{ Nome='UltraViewer';            Rx='ultraviewer';                        Classe='SUSPEITO' },
-    @{ Nome='Ammyy Admin';            Rx='ammyy';                              Classe='SUSPEITO' },
-    @{ Nome='Supremo';                Rx='supremo';                            Classe='SUSPEITO' },
-    @{ Nome='TeamViewer';             Rx='teamviewer';                         Classe='SUSPEITO' },
-    @{ Nome='LogMeIn';                Rx='logmein';                            Classe='SUSPEITO' },
-    @{ Nome='Zoho Assist';            Rx='zoho ?assist|zaservice';             Classe='SUSPEITO' },
-    @{ Nome='GoTo Resolve/Rescue';    Rx='goto ?(resolve|assist)|logmeinrescue'; Classe='SUSPEITO' },
-    @{ Nome='Remote Utilities';       Rx='remote ?utilities|rutserv';          Classe='SUSPEITO' },
-    @{ Nome='VNC (Real/Ultra/Tight)'; Rx='realvnc|ultravnc|tightvnc|vncserver'; Classe='SUSPEITO' },
-    @{ Nome='ngrok / tunel';          Rx='\bngrok\b|localtonet|playit\.gg';    Classe='SUSPEITO' }
-)
+    $catalogo = @(
+        @{ Nome='AnyDesk';                Rx='anydesk';                            Classe='ESPERADO' },
+        @{ Nome='ScreenConnect/ConnectWise'; Rx='screenconnect|connectwise';       Classe='SUSPEITO' },
+        @{ Nome='Atera';                  Rx='ateraagent|\batera\b';               Classe='SUSPEITO' },
+        @{ Nome='Splashtop';              Rx='splashtop';                          Classe='SUSPEITO' },
+        @{ Nome='NinjaRMM/NinjaOne';      Rx='ninjarmm|ninjaone';                  Classe='SUSPEITO' },
+        @{ Nome='Syncro';                 Rx='syncro(agent|mps)';                  Classe='SUSPEITO' },
+        @{ Nome='Level.io';               Rx='level\.io|level-agent';              Classe='SUSPEITO' },
+        @{ Nome='PDQ Connect';            Rx='pdq ?connect';                       Classe='SUSPEITO' },
+        @{ Nome='Kaseya/VSA';             Rx='kaseya|agentmon';                    Classe='SUSPEITO' },
+        @{ Nome='Tactical RMM';           Rx='tacticalrmm|tacticalagent';          Classe='SUSPEITO' },
+        @{ Nome='RustDesk';               Rx='rustdesk';                           Classe='SUSPEITO' },
+        @{ Nome='MeshCentral/MeshAgent';  Rx='meshagent|meshcentral';              Classe='SUSPEITO' },
+        @{ Nome='DWAgent';                Rx='dwagent';                            Classe='SUSPEITO' },
+        @{ Nome='UltraViewer';            Rx='ultraviewer';                        Classe='SUSPEITO' },
+        @{ Nome='Ammyy Admin';            Rx='ammyy';                              Classe='SUSPEITO' },
+        @{ Nome='Supremo';                Rx='supremo';                            Classe='SUSPEITO' },
+        @{ Nome='TeamViewer';             Rx='teamviewer';                         Classe='SUSPEITO' },
+        @{ Nome='LogMeIn';                Rx='logmein';                            Classe='SUSPEITO' },
+        @{ Nome='Zoho Assist';            Rx='zoho ?assist|zaservice';             Classe='SUSPEITO' },
+        @{ Nome='GoTo Resolve/Rescue';    Rx='goto ?(resolve|assist)|logmeinrescue'; Classe='SUSPEITO' },
+        @{ Nome='Remote Utilities';       Rx='remote ?utilities|rutserv';          Classe='SUSPEITO' },
+        @{ Nome='VNC (Real/Ultra/Tight)'; Rx='realvnc|ultravnc|tightvnc|vncserver'; Classe='SUSPEITO' },
+        @{ Nome='ngrok / tunel';          Rx='\bngrok\b|localtonet|playit\.gg';    Classe='SUSPEITO' }
+    )
 
-# inventario coletado uma vez so
-$pastas = @()
-foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData, $env:LOCALAPPDATA, $env:APPDATA)) {
-    if ($base -and (Test-Path $base)) {
-        $pastas += Get-ChildItem $base -Directory | Select-Object @{n='N';e={$_.Name}}, @{n='P';e={$_.FullName}}
-    }
-}
-$procs = @(Get-Process | Where-Object { $_.Path } | Select-Object Name, Path)
-
-foreach ($item in $catalogo) {
-    $onde = @()
-    $instalados | Where-Object { $_.DisplayName -match $item.Rx } | ForEach-Object { $onde += "programa instalado: $($_.DisplayName) $($_.DisplayVersion)" }
-    $servicos   | Where-Object { $_.Name -match $item.Rx -or $_.DisplayName -match $item.Rx -or $_.PathName -match $item.Rx } | ForEach-Object { $onde += "servico: $($_.Name) [$($_.State)]" }
-    $pastas     | Where-Object { $_.N -match $item.Rx } | ForEach-Object { $onde += "pasta: $($_.P)" }
-    $procs      | Where-Object { $_.Name -match $item.Rx -or $_.Path -match $item.Rx } | ForEach-Object { $onde += "EM EXECUCAO AGORA: $($_.Path)" }
-
-    if ($onde.Count) {
-        $onde = $onde | Select-Object -Unique
-        if ($item.Classe -eq 'ESPERADO') {
-            $obs += "esperado:$($item.Nome)"
-            $det += "[esperado] $($item.Nome) — ferramenta oficial da casa"
-        } else {
-            $suspeitos += "rmm:$($item.Nome)"
-            $det += "[SUSPEITO] $($item.Nome) — acesso remoto fora do padrao IGN"
-        }
-        foreach ($o in $onde) { $det += "           $o" }
-    }
-}
-
-# --- heuristica: servico ou tarefa rodando de ProgramData / pasta do usuario ---
-# software honesto quase nunca mora ai. Whitelist do que e' normal na frota.
-$normal = 'dropbox|onedrive|slack|teams|zoom|chrome|edge|adobe|docker|steam|spotify|discord|cursor|postman|whatsapp|google|anydesk|keepass|expressvpn|nvidia|intel|lenovo|dell|edgeupdate'
-$servicos | Where-Object { ($_.PathName -match 'ProgramData|\\Users\\') -and ($_.PathName -notmatch $normal) } | ForEach-Object {
-    $obs += "servico-fora-do-lugar"
-    $det += "[atencao] Servico rodando de local incomum: $($_.Name) [$($_.State)]"
-    $det += "           $($_.PathName)"
-}
-Get-ScheduledTask | Where-Object { $_.State -ne 'Disabled' } | ForEach-Object {
-    $exec = ($_.Actions | Where-Object { $_.Execute }).Execute -join ' '
-    if ($exec -match 'ProgramData|\\Users\\' -and $exec -notmatch $normal) {
-        $obs += "tarefa-fora-do-lugar"
-        $det += "[atencao] Tarefa agendada de local incomum: $($_.TaskName)"
-        $det += "           $exec"
-    }
-}
-
-# --- AnyDesk e' nosso, mas senha fixa deixa entrar SEM ninguem aceitar ---
-$adConf = @("$env:ProgramData\AnyDesk\service.conf", "$env:APPDATA\AnyDesk\service.conf")
-foreach ($c in $adConf) {
-    if (Test-Path $c) {
-        $conf = Get-Content $c
-        if ($conf -match 'pwd_hash|pwd_salt') {
-            $obs += "anydesk-senha-fixa"
-            $det += "[atencao] AnyDesk com senha de acesso NAO VIGIADO configurada ($c)."
-            $det += "           Permite entrar sem a pessoa aceitar. Conferir se foi a TI que definiu."
+    # inventario coletado uma vez so
+    $pastas = @()
+    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData, $env:LOCALAPPDATA, $env:APPDATA)) {
+        if ($base -and (Test-Path $base)) {
+            $pastas += Get-ChildItem $base -Directory | Select-Object @{n='N';e={$_.Name}}, @{n='P';e={$_.FullName}}
         }
     }
-}
+    $procs = @(Get-Process | Where-Object { $_.Path } | Select-Object Name, Path)
 
-# --- acesso remoto nativo do Windows (RDP) ---
-$rdp = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections).fDenyTSConnections
-if ($rdp -eq 0) {
-    $obs += "rdp-ligado"
-    $det += "[atencao] Area de Trabalho Remota (RDP) esta HABILITADA nesta maquina."
+    foreach ($item in $catalogo) {
+        $onde = @()
+        $instalados | Where-Object { $_.DisplayName -match $item.Rx } | ForEach-Object { $onde += "programa instalado: $($_.DisplayName) $($_.DisplayVersion)" }
+        $servicos   | Where-Object { $_.Name -match $item.Rx -or $_.DisplayName -match $item.Rx -or $_.PathName -match $item.Rx } | ForEach-Object { $onde += "servico: $($_.Name) [$($_.State)]" }
+        $pastas     | Where-Object { $_.N -match $item.Rx } | ForEach-Object { $onde += "pasta: $($_.P)" }
+        $procs      | Where-Object { $_.Name -match $item.Rx -or $_.Path -match $item.Rx } | ForEach-Object { $onde += "EM EXECUCAO AGORA: $($_.Path)" }
+
+        if ($onde.Count) {
+            $onde = $onde | Select-Object -Unique
+            if ($item.Classe -eq 'ESPERADO') {
+                $obs += "esperado:$($item.Nome)"
+                $det += "[esperado] $($item.Nome) — ferramenta oficial da casa"
+            } else {
+                $suspeitos += "rmm:$($item.Nome)"
+                $det += "[SUSPEITO] $($item.Nome) — acesso remoto fora do padrao IGN"
+            }
+            foreach ($o in $onde) { $det += "           $o" }
+        }
+    }
+
+    # --- heuristica: servico ou tarefa rodando de ProgramData / pasta do usuario ---
+    # software honesto quase nunca mora ai. Whitelist do que e' normal na frota.
+    $normal = 'dropbox|onedrive|slack|teams|zoom|chrome|edge|adobe|docker|steam|spotify|discord|cursor|postman|whatsapp|google|anydesk|keepass|expressvpn|nvidia|intel|lenovo|dell|edgeupdate'
+    $servicos | Where-Object { ($_.PathName -match 'ProgramData|\\Users\\') -and ($_.PathName -notmatch $normal) } | ForEach-Object {
+        $obs += "servico-fora-do-lugar"
+        $det += "[atencao] Servico rodando de local incomum: $($_.Name) [$($_.State)]"
+        $det += "           $($_.PathName)"
+    }
+    Get-ScheduledTask | Where-Object { $_.State -ne 'Disabled' } | ForEach-Object {
+        $exec = ($_.Actions | Where-Object { $_.Execute }).Execute -join ' '
+        if ($exec -match 'ProgramData|\\Users\\' -and $exec -notmatch $normal) {
+            $obs += "tarefa-fora-do-lugar"
+            $det += "[atencao] Tarefa agendada de local incomum: $($_.TaskName)"
+            $det += "           $exec"
+        }
+    }
+
+    # --- AnyDesk e' nosso, mas senha fixa deixa entrar SEM ninguem aceitar ---
+    $adConf = @("$env:ProgramData\AnyDesk\service.conf", "$env:APPDATA\AnyDesk\service.conf")
+    foreach ($c in $adConf) {
+        if (Test-Path $c) {
+            $conf = Get-Content $c
+            if ($conf -match 'pwd_hash|pwd_salt') {
+                $obs += "anydesk-senha-fixa"
+                $det += "[atencao] AnyDesk com senha de acesso NAO VIGIADO configurada ($c)."
+                $det += "           Permite entrar sem a pessoa aceitar. Conferir se foi a TI que definiu."
+            }
+        }
+    }
+
+    # --- acesso remoto nativo do Windows (RDP) ---
+    $rdp = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections).fDenyTSConnections
+    if ($rdp -eq 0) {
+        $obs += "rdp-ligado"
+        $det += "[atencao] Area de Trabalho Remota (RDP) esta HABILITADA nesta maquina."
+    }
+
+} catch {
+    $det += "[aviso] A varredura de outros acessos remotos falhou nesta maquina: $($_.Exception.Message)"
+    $det += "        (o resultado do Action1 acima continua valido)"
 }
 
 # ---- veredito ----
@@ -223,7 +230,12 @@ else                            { $veredito = "LIMPO" }
 $marcadores = @($achados) + @($suspeitos) + @($obs) | Where-Object { $_ }
 
 $desktop = [Environment]::GetFolderPath("Desktop")
-$arq     = Join-Path $desktop "verificacao-seguranca.txt"
+if (-not $desktop -or -not (Test-Path $desktop)) { $desktop = "$env:USERPROFILE\Desktop" }
+# nome com USUARIO + PC + data: quando varias pessoas mandarem, da p/ saber de quem e' cada um
+$limpaU = ($env:USERNAME  -replace '[^A-Za-z0-9._-]','')
+$limpaH = ($env:COMPUTERNAME -replace '[^A-Za-z0-9._-]','')
+$nomeArq = "verificacao-seguranca-$limpaU-$limpaH-$(Get-Date -Format 'yyyy-MM-dd').txt"
+$arq     = Join-Path $desktop $nomeArq
 $cab = @(
     "VERIFICACAO DE SEGURANCA - IG Networks",
     "Data......: $(Get-Date -Format 'dd/MM/yyyy HH:mm:ss')",
@@ -238,7 +250,14 @@ $cab = @(
     "",
     "----- DETALHES -----"
 )
-($cab + $det) | Set-Content -Path $arq -Encoding UTF8
+try {
+    ($cab + $det) | Set-Content -Path $arq -Encoding UTF8 -ErrorAction Stop
+} catch {
+    # Desktop bloqueado/OneDrive fora do ar: nao perder o relatorio
+    $arq = Join-Path $env:USERPROFILE $nomeArq
+    try { ($cab + $det) | Set-Content -Path $arq -Encoding UTF8 -ErrorAction Stop }
+    catch { $arq = Join-Path $env:TEMP $nomeArq; ($cab + $det) | Set-Content -Path $arq -Encoding UTF8 }
+}
 
 Write-Host ""
 if ($veredito -eq "ACHADO") {
@@ -248,7 +267,7 @@ if ($veredito -eq "ACHADO") {
     Write-Host ""
     Write-Host "NAO desinstale e NAO apague nada." -ForegroundColor Yellow
     Write-Host "Mande para a TI o arquivo que ficou no seu Desktop:" -ForegroundColor Yellow
-    Write-Host "  verificacao-seguranca.txt" -ForegroundColor White
+    Write-Host "  $nomeArq" -ForegroundColor White
     Write-Host ""
     Write-Host "Marcadores encontrados: $($achados -join ', ')" -ForegroundColor Gray
 } elseif ($veredito -eq "REVISAR") {
@@ -260,7 +279,8 @@ if ($veredito -eq "ACHADO") {
     Write-Host "Achamos outro programa de acesso remoto que pode ser normal" -ForegroundColor Gray
     Write-Host "(alguem da TI pode ter instalado) - so precisa ser conferido." -ForegroundColor Gray
     Write-Host ""
-    Write-Host "Mande para a TI o arquivo do seu Desktop: verificacao-seguranca.txt" -ForegroundColor Yellow
+    Write-Host "Mande para a TI o arquivo que ficou no seu Desktop:" -ForegroundColor Yellow
+    Write-Host "  $nomeArq" -ForegroundColor White
     Write-Host "Nao precisa desinstalar nada." -ForegroundColor Gray
 } else {
     Write-Host "=========================================" -ForegroundColor Green
