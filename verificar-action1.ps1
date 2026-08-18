@@ -8,6 +8,11 @@
 #   so responde as duas perguntas: "foi pega na leva de abril?" e "tem algum
 #   acesso remoto estranho aqui?".
 #
+# PROCEDENCIA (18/08/2026): tudo que as etapas 4, 5 e 6 acharem passa por
+#   Get-AuthenticodeSignature — responde "quem assinou esse binario?". Binario SEM
+#   assinatura ou com HashMismatch (alterado depois de assinado) rodando de pasta de
+#   usuario/ProgramData e' sinal forte, nao depende de conhecer o nome da ameaca.
+#
 # NAO REMOVE NADA e NAO ALTERA CONFIGURACAO. E' so diagnostico — se achar algo,
 # a maquina precisa ser preservada como prova.
 #
@@ -34,6 +39,39 @@ $det     = @()
 $guid    = ""
 
 function Etapa($n, $texto) { Write-Host ("[{0}/6] {1}" -f $n, $texto) -ForegroundColor White }
+
+# ---- procedencia: quem assinou o binario ----
+# Valid        = assinado e cadeia confiavel
+# HashMismatch = assinado MAS ALTERADO depois -> nunca e' normal
+# NotSigned    = sem assinatura (aceitavel em ferramenta pequena, ruim em servico)
+function Procedencia($caminho) {
+    if (-not $caminho) { return $null }
+    $p = ([string]$caminho).Trim()
+    # PathName de servico vem com argumentos: "C:\x\y.exe" -k algo
+    if ($p -match '^"([^"]+)"')      { $p = $matches[1] }
+    elseif ($p -match '^(.+?\.exe)') { $p = $matches[1] }
+    if (-not (Test-Path -LiteralPath $p)) { return $null }
+    $s = Get-AuthenticodeSignature -LiteralPath $p
+    if (-not $s) { return $null }
+    $quem = ''
+    if ($s.SignerCertificate) {
+        $cn = ($s.SignerCertificate.Subject -split ',' | Where-Object { $_ -match 'CN=' } | Select-Object -First 1)
+        $quem = ($cn -replace '.*CN=','').Trim()
+    }
+    return [pscustomobject]@{ Caminho = $p; Status = [string]$s.Status; Assinante = $quem }
+}
+function TextoProc($pr) {
+    if (-not $pr)                          { return 'nao foi possivel conferir a assinatura' }
+    if ($pr.Status -eq 'Valid')            { return "assinado por: $($pr.Assinante)" }
+    if ($pr.Status -eq 'HashMismatch')     { return "ALTERADO DEPOIS DE ASSINADO (HashMismatch) - dizia ser: $($pr.Assinante)" }
+    if ($pr.Status -eq 'NotSigned')        { return 'SEM ASSINATURA' }
+    return "assinatura com problema ($($pr.Status)) - dizia ser: $($pr.Assinante)"
+}
+# marcador de risco: binario fora do lugar E sem assinatura confiavel
+function ProcRuim($pr) {
+    if (-not $pr) { return $false }
+    return ($pr.Status -ne 'Valid')
+}
 
 # ---- [1] chave de registro do agente ----
 Etapa 1 "Procurando registro do agente..."
@@ -90,7 +128,10 @@ $servicos = @(Get-CimInstance Win32_Service)
 $svc = $servicos | Where-Object { $_.Name -match 'action1' -or $_.PathName -match 'Action1' }
 if ($svc) {
     $achados += "servico-ativo"
-    foreach ($s in $svc) { $det += "[ACHADO] Servico: $($s.Name) estado=$($s.State) caminho=$($s.PathName)" }
+    foreach ($s in $svc) {
+        $det += "[ACHADO] Servico: $($s.Name) estado=$($s.State) caminho=$($s.PathName)"
+        $det += "         procedencia: $(TextoProc (Procedencia $s.PathName))"
+    }
 }
 foreach ($d in @("$env:ProgramFiles\Action1", "${env:ProgramFiles(x86)}\Action1", "$env:ProgramData\Action1")) {
     if (Test-Path $d) {
@@ -109,6 +150,7 @@ Get-ChildItem $dl -File -Filter *.msi | Where-Object { $_.Name -match 'action1|a
     $det += "[ACHADO] Instalador em Downloads: $($_.Name)"
     $det += "         tamanho=$($_.Length)  data=$($_.LastWriteTime)"
     $det += "         SHA256=$h"
+    $det += "         procedencia: $(TextoProc (Procedencia $_.FullName))"
 }
 
 # ============================================================================
@@ -158,10 +200,11 @@ try {
 
     foreach ($item in $catalogo) {
         $onde = @()
+        $bins = @()
         $instalados | Where-Object { $_.DisplayName -match $item.Rx } | ForEach-Object { $onde += "programa instalado: $($_.DisplayName) $($_.DisplayVersion)" }
-        $servicos   | Where-Object { $_.Name -match $item.Rx -or $_.DisplayName -match $item.Rx -or $_.PathName -match $item.Rx } | ForEach-Object { $onde += "servico: $($_.Name) [$($_.State)]" }
+        $servicos   | Where-Object { $_.Name -match $item.Rx -or $_.DisplayName -match $item.Rx -or $_.PathName -match $item.Rx } | ForEach-Object { $onde += "servico: $($_.Name) [$($_.State)]"; $bins += $_.PathName }
         $pastas     | Where-Object { $_.N -match $item.Rx } | ForEach-Object { $onde += "pasta: $($_.P)" }
-        $procs      | Where-Object { $_.Name -match $item.Rx -or $_.Path -match $item.Rx } | ForEach-Object { $onde += "EM EXECUCAO AGORA: $($_.Path)" }
+        $procs      | Where-Object { $_.Name -match $item.Rx -or $_.Path -match $item.Rx } | ForEach-Object { $onde += "EM EXECUCAO AGORA: $($_.Path)"; $bins += $_.Path }
 
         if ($onde.Count) {
             $onde = $onde | Select-Object -Unique
@@ -173,6 +216,14 @@ try {
                 $det += "[SUSPEITO] $($item.Nome) — acesso remoto fora do padrao IGN"
             }
             foreach ($o in $onde) { $det += "           $o" }
+            foreach ($b in ($bins | Where-Object { $_ } | Select-Object -Unique)) {
+                $pr = Procedencia $b
+                $det += "           procedencia: $(TextoProc $pr)"
+                if ($pr -and $pr.Status -eq 'HashMismatch') {
+                    $suspeitos += "binario-alterado:$($item.Nome)"
+                    $det += "           [SUSPEITO] binario alterado depois de assinado"
+                }
+            }
         }
     }
 
@@ -180,16 +231,30 @@ try {
     # software honesto quase nunca mora ai. Whitelist do que e' normal na frota.
     $normal = 'dropbox|onedrive|slack|teams|zoom|chrome|edge|adobe|docker|steam|spotify|discord|cursor|postman|whatsapp|google|anydesk|keepass|expressvpn|nvidia|intel|lenovo|dell|edgeupdate'
     $servicos | Where-Object { ($_.PathName -match 'ProgramData|\\Users\\') -and ($_.PathName -notmatch $normal) } | ForEach-Object {
-        $obs += "servico-fora-do-lugar"
         $det += "[atencao] Servico rodando de local incomum: $($_.Name) [$($_.State)]"
         $det += "           $($_.PathName)"
+        $pr = Procedencia $_.PathName
+        $det += "           procedencia: $(TextoProc $pr)"
+        if (ProcRuim $pr) {
+            $suspeitos += "servico-fora-do-lugar-sem-assinatura"
+            $det += "           [SUSPEITO] fora do lugar E sem assinatura confiavel"
+        } else {
+            $obs += "servico-fora-do-lugar"
+        }
     }
     Get-ScheduledTask | Where-Object { $_.State -ne 'Disabled' } | ForEach-Object {
         $exec = ($_.Actions | Where-Object { $_.Execute }).Execute -join ' '
         if ($exec -match 'ProgramData|\\Users\\' -and $exec -notmatch $normal) {
-            $obs += "tarefa-fora-do-lugar"
             $det += "[atencao] Tarefa agendada de local incomum: $($_.TaskName)"
             $det += "           $exec"
+            $pr = Procedencia $exec
+            $det += "           procedencia: $(TextoProc $pr)"
+            if (ProcRuim $pr) {
+                $suspeitos += "tarefa-fora-do-lugar-sem-assinatura"
+                $det += "           [SUSPEITO] fora do lugar E sem assinatura confiavel"
+            } else {
+                $obs += "tarefa-fora-do-lugar"
+            }
         }
     }
 
