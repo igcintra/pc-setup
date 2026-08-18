@@ -47,9 +47,16 @@ function Etapa($n, $texto) { Write-Host ("[{0}/6] {1}" -f $n, $texto) -Foregroun
 function Procedencia($caminho) {
     if (-not $caminho) { return $null }
     $p = ([string]$caminho).Trim()
+    # tarefa agendada guarda o caminho com variavel: %ProgramData%\... -> expandir
+    $p = [Environment]::ExpandEnvironmentVariables($p)
     # PathName de servico vem com argumentos: "C:\x\y.exe" -k algo
     if ($p -match '^"([^"]+)"')      { $p = $matches[1] }
     elseif ($p -match '^(.+?\.exe)') { $p = $matches[1] }
+    # alvo que e' SCRIPT: .cmd/.bat/.vbs/.js nao carregam assinatura Authenticode.
+    # Script agendado rodando de ProgramData/perfil de usuario e' persistencia -> tratar como ruim.
+    if ($p -match '\.(cmd|bat|vbs|js|wsf)$') {
+        return [pscustomobject]@{ Caminho = $p; Status = 'ScriptSemAssinatura'; Assinante = '' }
+    }
     if (-not (Test-Path -LiteralPath $p)) { return $null }
     $s = Get-AuthenticodeSignature -LiteralPath $p
     if (-not $s) { return $null }
@@ -65,6 +72,7 @@ function TextoProc($pr) {
     if ($pr.Status -eq 'Valid')            { return "assinado por: $($pr.Assinante)" }
     if ($pr.Status -eq 'HashMismatch')     { return "ALTERADO DEPOIS DE ASSINADO (HashMismatch) - dizia ser: $($pr.Assinante)" }
     if ($pr.Status -eq 'NotSigned')        { return 'SEM ASSINATURA' }
+    if ($pr.Status -eq 'ScriptSemAssinatura') { return 'SCRIPT (.cmd/.bat/.vbs) - nao existe assinatura possivel' }
     return "assinatura com problema ($($pr.Status)) - dizia ser: $($pr.Assinante)"
 }
 # marcador de risco: binario fora do lugar E sem assinatura confiavel
@@ -117,7 +125,14 @@ if ($ev) {
             $det += ("         {0}  id={1}  {2}" -f $h.TimeCreated, $h.Id, $msg)
         }
     }
-    $det += "         (log cobre de $(($ev | Select-Object -Last 1).TimeCreated) a $(($ev | Select-Object -First 1).TimeCreated), $($ev.Count) eventos)"
+    $maisAntigo = ($ev | Select-Object -Last 1).TimeCreated
+    $det += "         (log cobre de $maisAntigo a $(($ev | Select-Object -First 1).TimeCreated), $($ev.Count) eventos)"
+    # a leva do incidente foi 09/04/2026: se o log comeca depois disso, a etapa 3 e' cega
+    if ($maisAntigo -gt (Get-Date '2026-04-09')) {
+        $obs += "log-nao-cobre-abril"
+        $det += "         [atencao] o log comeca DEPOIS de 09/04/2026 -> esta etapa nao consegue"
+        $det += "                   provar o passado. 'LIMPO' aqui significa 'nada AGORA', nao 'nunca teve'."
+    }
 } else {
     $det += "[aviso] Nao foi possivel ler o log do Windows Installer."
 }
@@ -229,7 +244,9 @@ try {
 
     # --- heuristica: servico ou tarefa rodando de ProgramData / pasta do usuario ---
     # software honesto quase nunca mora ai. Whitelist do que e' normal na frota.
-    $normal = 'dropbox|onedrive|slack|teams|zoom|chrome|edge|adobe|docker|steam|spotify|discord|cursor|postman|whatsapp|google|anydesk|keepass|expressvpn|nvidia|intel|lenovo|dell|edgeupdate'
+    # Defender/MpDefender/NisSrv REALMENTE moram em ProgramData -> sem isso a heuristica
+    # apitava em 18/18 maquinas (medido no 1o lote de 18 relatorios, 18/08/2026).
+    $normal = 'dropbox|onedrive|slack|teams|zoom|chrome|edge|adobe|docker|steam|spotify|discord|cursor|postman|whatsapp|google|anydesk|keepass|expressvpn|nvidia|intel|lenovo|dell|edgeupdate|windows defender|mpdefendercoreservice|msmpeng|nissrv|mdcoresvc|myasus'
     $servicos | Where-Object { ($_.PathName -match 'ProgramData|\\Users\\') -and ($_.PathName -notmatch $normal) } | ForEach-Object {
         $det += "[atencao] Servico rodando de local incomum: $($_.Name) [$($_.State)]"
         $det += "           $($_.PathName)"
