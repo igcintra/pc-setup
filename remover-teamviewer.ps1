@@ -94,9 +94,12 @@ foreach ($p in $pastas) {
         Add-Det "             assinatura=$($sig.Status) assinante=$cn  data=$($_.LastWriteTime)"
     }
     # log de conexoes: quem entrou nessa maquina (fica no ZIP)
-    Get-ChildItem -LiteralPath $p -Recurse -Include 'Connections*.txt','TeamViewer*_Logfile*.log' | ForEach-Object {
-        Add-Det "        LOG DE CONEXOES: $($_.Name) ($([int]($_.Length/1024)) KB) -> vai no ZIP"
-    }
+    # NAO usar -Include aqui: junto com -LiteralPath ele e' ignorado e lista a pasta toda.
+    Get-ChildItem -LiteralPath $p -Recurse -File |
+        Where-Object { $_.Name -match '^Connections.*\.txt$|_Logfile.*\.log$|^TVNetwork\.log$' } |
+        ForEach-Object {
+            Add-Det "        LOG/HISTORICO: $($_.Name) ($([int]($_.Length/1024)) KB) -> vai no ZIP"
+        }
 }
 foreach ($t in $tasks)      { $achou += "tarefa";   Add-Det "[tarefa] $($t.TaskName) [$($t.State)] -> $((($t.Actions | Where-Object { $_.Execute }).Execute -join ' '))" }
 foreach ($s in $svcs)       { $achou += "servico";  Add-Det "[servico] $($s.Name) [$($s.State)] -> $($s.PathName)" }
@@ -175,8 +178,14 @@ if (-not $Doit) {
     Write-Host ""
     $resp = Read-Host "Para remover, digite REMOVER e aperte Enter (qualquer outra coisa cancela)"
     if ($resp -ne 'REMOVER') {
+        Add-Det ""
+        Add-Det "----- REMOCAO -----"
+        Add-Det "[CANCELADO] a pessoa nao digitou REMOVER. NADA foi removido -- tudo que esta no"
+        Add-Det "            inventario acima CONTINUA na maquina."
+        ($cab + $det) | Set-Content -Path $txt -Encoding UTF8
         Write-Host ""
-        Write-Host "Cancelado. Nada foi removido. A prova ficou salva no Desktop." -ForegroundColor Yellow
+        Write-Host "Cancelado. NADA foi removido - continua tudo na maquina." -ForegroundColor Yellow
+        Write-Host "A prova ficou salva no Desktop. Para remover, rode de novo e digite REMOVER." -ForegroundColor Yellow
         Write-Host ""
         return
     }
