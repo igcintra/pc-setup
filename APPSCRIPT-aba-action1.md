@@ -1,5 +1,13 @@
 # Aba nova na planilha do contador — resultados da varredura Action1
 
+> **STATUS 20/08/2026 — CONTADOR DESLIGADO POR DECISAO DO GABRIEL.**
+> O `verificar-action1.ps1` **nao chama mais** o Web App: o resultado fica so no TXT do
+> Desktop, que a pessoa manda pra TI (e que agora ela mesma pode colar numa IA).
+> Motivo: nao vale montar a aba pra um piloto de ~20 maquinas do Accounting.
+> **Este documento continua valido** — se a varredura passar pra empresa inteira,
+> e so seguir daqui e religar a chamada no fim do script (o bloco foi removido, nao
+> comentado; esta no historico do git).
+
 O `verificar-action1.ps1` chama o **mesmo Web App** do contador de scripts, mas manda
 parâmetros extras:
 
