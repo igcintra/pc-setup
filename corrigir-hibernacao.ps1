@@ -71,12 +71,35 @@ powercfg /hibernate on 2>&1 | Out-Null
 powercfg /hibernate /type full 2>&1 | Out-Null
 
 $hiberFile = Join-Path $env:SystemDrive 'hiberfil.sys'
-$temHiberfil = Test-Path $hiberFile
-if ($temHiberfil) {
-    $gb = [math]::Round((Get-Item $hiberFile -Force).Length / 1GB, 1)
-    Write-Host "  [ok] hiberfil.sys criado ($gb GB) - a hibernacao existe de verdade" -ForegroundColor Green
+
+# A prova imediata eh o registro; o hiberfil.sys de vários GB pode levar segundos
+# para aparecer (no 1o caso real o script todo rodou em 1s e reportou falso alarme).
+function Test-HibernacaoLigada {
+    try {
+        $v = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Power' `
+              -Name HibernateEnabled -ErrorAction Stop).HibernateEnabled
+        return [int]$v -eq 1
+    } catch { return $false }
+}
+
+$regOk = Test-HibernacaoLigada
+$temHiberfil = $false
+for ($i = 0; $i -lt 10; $i++) {                 # ate 5s esperando o arquivo aparecer
+    if (Test-Path $hiberFile) { $temHiberfil = $true; break }
+    Start-Sleep -Milliseconds 500
+}
+
+if ($regOk -or $temHiberfil) {
+    $tam = ''
+    if ($temHiberfil) {
+        try { $tam = ' (' + [math]::Round((Get-Item $hiberFile -Force).Length / 1GB, 1) + ' GB)' } catch {}
+    }
+    Write-Host "  [ok] hibernacao LIGADA$tam" -ForegroundColor Green
+    if (-not $temHiberfil) {
+        Write-Host "  [i] o hiberfil.sys ainda nao aparece no disco - normal, o Windows o cria em segundo plano" -ForegroundColor DarkGray
+    }
 } else {
-    Write-Host "  [!] hiberfil.sys NAO apareceu - ver o motivo na saida do passo 6" -ForegroundColor Red
+    Write-Host "  [!] a hibernacao NAO ligou - ver o motivo na saida do passo 6" -ForegroundColor Red
 }
 
 # ------------------------------------------------------------
@@ -121,7 +144,13 @@ $depois = (powercfg /a) -join "`n"
 Write-Host $depois -ForegroundColor DarkGray
 
 # valor efetivo da acao da tampa, lido do esquema ativo
-$q = (powercfg /query SCHEME_CURRENT $SUB_BUTTONS $GUID_LID) -join "`n"
+$q = (powercfg /query SCHEME_CURRENT $SUB_BUTTONS $GUID_LID 2>&1) -join "`n"
+if ($q -notmatch '0x') {
+    # em Win11 recente a consulta dirigida pode nao trazer os indices: cai no dump inteiro
+    $todo = (powercfg /query 2>&1) -join "`n"
+    $pos = $todo.IndexOf($GUID_LID)
+    if ($pos -ge 0) { $q = $todo.Substring($pos, [Math]::Min(1200, $todo.Length - $pos)) }
+}
 $nomes = @{0='Nao fazer nada';1='Suspender';2='Hibernar';3='Desligar';4='Desligar o video'}
 # so as duas linhas "Current AC/DC Power Setting Index" tem 0x nesta saida -> serve em
 # qualquer idioma do Windows (PT/ES/EN), sem depender do texto traduzido.
@@ -138,24 +167,28 @@ if ($idx.Count -ge 1) {
     }
 } else {
     Write-Host "  [i] nao consegui ler o indice — confira na tela do Painel de Controle" -ForegroundColor Yellow
+    Write-Host "  --- saida bruta da consulta (para o TI) ---" -ForegroundColor DarkGray
+    Write-Host $q -ForegroundColor DarkGray
 }
 
-# O veredito olha o hiberfil.sys, nao o texto do /a: a palavra "Hibernate/Hibernar"
-# aparece TAMBEM na lista de estados NAO disponiveis ("Hibernation has not been enabled"),
-# entao procurar a palavra na saida daria falso positivo.
-$temHiberfil = Test-Path $hiberFile
-if ($temHiberfil -and $tampaOk) {
+# O veredito olha o REGISTRO (HibernateEnabled), nao o texto do /a: a palavra
+# "Hibernate/Hibernar" aparece TAMBEM na lista de estados NAO disponiveis
+# ("Hibernation has not been enabled"), entao procurar a palavra daria falso positivo.
+# E nao olha apenas o hiberfil.sys: ele pode demorar a aparecer (falso alarme no 1o uso real).
+$hibernaOk = (Test-HibernacaoLigada) -or (Test-Path $hiberFile)
+if ($hibernaOk -and $tampaOk) {
     Write-Host "`n=== PRONTO ===" -ForegroundColor Green
     Write-Host "Hibernacao disponivel. Teste agora: feche a tampa, espere ~20s e veja se o PC" -ForegroundColor White
     Write-Host "apaga de verdade (ventoinha e LED param). Abra e o trabalho volta como estava." -ForegroundColor White
-} elseif ($temHiberfil) {
-    Write-Host "`n=== QUASE ===" -ForegroundColor Yellow
-    Write-Host "A hibernacao voltou, mas a acao da tampa nao ficou em 'Hibernar'." -ForegroundColor White
+} elseif ($hibernaOk) {
+    Write-Host "`n=== PRONTO (com uma conferencia) ===" -ForegroundColor Green
+    Write-Host "A hibernacao esta LIGADA. Nao consegui LER de volta a acao da tampa" -ForegroundColor White
+    Write-Host "(apenas ler; a gravacao do passo 4 nao deu erro) - confira na tela:" -ForegroundColor White
     Write-Host "Abra: Painel de Controle > Opcoes de Energia > 'Escolher o que fazer ao fechar a tampa'" -ForegroundColor White
-    Write-Host "e selecione Hibernar nas duas colunas (agora a opcao existe na lista)." -ForegroundColor White
+    Write-Host "e veja se esta em Hibernar nas duas colunas (a opcao ja existe na lista)." -ForegroundColor White
 } else {
     Write-Host "`n=== ATENCAO ===" -ForegroundColor Red
-    Write-Host "A hibernacao NAO apareceu na lista do passo 6. Motivos possiveis (o proprio /a diz):" -ForegroundColor White
+    Write-Host "A hibernacao NAO ligou. Motivos possiveis (o proprio /a do passo 6 diz):" -ForegroundColor White
     Write-Host "  - politica de grupo ou firmware bloqueando;" -ForegroundColor White
     Write-Host "  - Hyper-V / VBS ligado (aparece 'o hipervisor nao suporta este estado');" -ForegroundColor White
     Write-Host "  - sem espaco no C: para o hiberfil.sys (~$hiberGB GB)." -ForegroundColor White
