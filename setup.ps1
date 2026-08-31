@@ -1304,25 +1304,43 @@ powercfg /change standby-timeout-ac 0 2>&1 | Out-Null
 powercfg /change hibernate-timeout-ac 0 2>&1 | Out-Null
 Write-Host "  AC (carregador): nunca apaga tela, nunca dorme" -ForegroundColor Green
 
-# Bateria: tela apaga em 30 min, NAO dorme
+# Bateria: tela apaga em 30 min, NAO dorme, mas HIBERNA em 60 min
+# (rede de seguranca para o PC esquecido ligado com a tampa ABERTA)
 powercfg /change monitor-timeout-dc 30 2>&1 | Out-Null
 powercfg /change standby-timeout-dc 0 2>&1 | Out-Null
-powercfg /change hibernate-timeout-dc 0 2>&1 | Out-Null
-Write-Host "  Bateria: tela apaga em 30 min, sem sleep" -ForegroundColor Green
+powercfg /change hibernate-timeout-dc 60 2>&1 | Out-Null
+Write-Host "  Bateria: tela apaga em 30 min, sem sleep, hiberna em 60 min de inatividade" -ForegroundColor Green
 
 # Botoes: 0=nada, 1=sleep, 2=hibernate, 3=shutdown, 4=desliga display
 # Power button -> shutdown (real, sem Fast Startup)
 powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 7648efa3-dd9c-4e3e-b566-50f929386280 3 2>&1 | Out-Null
 powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 7648efa3-dd9c-4e3e-b566-50f929386280 3 2>&1 | Out-Null
-# Lid close -> sleep (volta quando abrir a tampa)
-powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 1 2>&1 | Out-Null
-powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 1 2>&1 | Out-Null
-Write-Host "  Botao Power = desligar | Fechar tampa = sleep (volta ao abrir)" -ForegroundColor Green
+# Lid close -> HIBERNAR (2). Gasta ZERO bateria com a tampa fechada e o trabalho
+# volta como estava. NAO usar 1 (suspender): em notebook novo que so tem S0ix no
+# firmware, o Modern Standby desligado (abaixo) tira o suspender da lista.
+powercfg /setacvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 2 2>&1 | Out-Null
+powercfg /setdcvalueindex SCHEME_CURRENT 4f971e89-eebd-4455-a8de-9e59040e7347 5ca83367-6e45-459f-a27b-476b1d01c936 2 2>&1 | Out-Null
+Write-Host "  Botao Power = desligar | Fechar tampa = hibernar (volta ao abrir)" -ForegroundColor Green
 
-# Desabilita hibernacao por completo (tambem desabilita Fast Startup)
-powercfg /hibernate off 2>&1 | Out-Null
+# HIBERNACAO LIGADA (tipo full — 'reduced' NAO hiberna, so serve p/ Fast Startup).
+# Custo: hiberfil.sys ocupa ~40% da RAM no C:.
+powercfg /hibernate on 2>&1 | Out-Null
+powercfg /hibernate /type full 2>&1 | Out-Null
+$ramGB = 0
+try { $ramGB = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 0) } catch {}
+Write-Host "  Hibernacao ligada (hiberfil.sys ~$([math]::Round($ramGB * 0.4, 1)) GB no C:)" -ForegroundColor Green
+
+# ...MAS o Fast Startup (Inicializacao rapida) CONTINUA DESLIGADO: 'Desligar' tem
+# de ser desligamento REAL, nao "apagar a tela e guardar a sessao". O /hibernate on
+# acima religa o HiberbootEnabled sozinho — por isso este REG vem DEPOIS dele.
 REG ADD "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /V HiberbootEnabled /T REG_DWORD /D 0 /F 2>&1 | Out-Null
-Write-Host "  Hibernacao desabilitada (shutdown = shutdown real, sem Fast Startup)" -ForegroundColor Green
+Write-Host "  Fast Startup desligado (shutdown = shutdown real)" -ForegroundColor Green
+
+# 'Hibernar' visivel no menu Iniciar
+$flyout = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\FlyoutMenuSettings"
+if (-not (Test-Path $flyout)) { New-Item -Path $flyout -Force | Out-Null }
+Set-ItemProperty -Path $flyout -Name "ShowHibernateOption" -Value 1 -Type DWord
+Write-Host "  'Hibernar' visivel no menu Iniciar" -ForegroundColor Green
 
 # Desabilita Modern Standby (S0ix) - causa do "LED piscando" apos shutdown em notebooks novos.
 # Forca o sistema a usar S3 (sleep) e S5 (shutdown real) tradicionais.
