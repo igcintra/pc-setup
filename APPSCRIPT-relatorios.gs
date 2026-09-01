@@ -7,21 +7,30 @@
  * O que faz: recebe por POST o TXT que o rastreador gera e cria o arquivo numa
  * pasta do Drive. Devolve JSON, nunca HTML.
  *
- * ONDE IMPLANTAR: numa conta @ignetworks.com (a do Gabriel). Quem cria o arquivo
- * e' a conta que RODA o script — implantando com a conta corporativa, o arquivo
- * nasce dentro da IGN. E' a diferenca em relacao ao contador, que vive na conta
- * pessoal por causa do bloqueio de login de 2026.
+ * ONDE IMPLANTAR: na conta Google PESSOAL do Gabriel — a mesma do contador, mas
+ * PROJETO SEPARADO. Motivo (testado em 01/09/2026): no Workspace da IGN a opcao
+ * "Qualquer pessoa" NAO EXISTE na implantacao (so "Somente eu" e "Qualquer pessoa
+ * em IG Networks"), e o rastreador roda em PC de funcionaria, sem login. Entao o
+ * endpoint TEM de ser da conta pessoal.
  *
- * COMO IMPLANTAR: script.google.com > Novo projeto > colar isto > Salvar >
- *   Implantar > Nova implantacao > App da Web
- *     Executar como: EU        (assim o arquivo nasce como gcintra@)
- *     Quem tem acesso: QUALQUER PESSOA     <- se essa opcao NAO aparecer, avisar
+ * E COMO O ARQUIVO FICA SENDO DA EMPRESA, ENTAO? A pasta e' de um SHARED DRIVE da
+ * IGN onde a conta pessoal entrou como membro. Arquivo criado em Shared Drive
+ * pertence a ORGANIZACAO, nao a quem criou — que e' o ponto todo. Em pasta de
+ * "Meu Drive" seria o contrario: o dono seria a conta pessoal.
+ *
+ * COMO IMPLANTAR: script.google.com (logado na conta PESSOAL) > Novo projeto >
+ *   colar isto > Salvar > Implantar > Nova implantacao > App da Web
+ *     Executar como: EU
+ *     Quem tem acesso: QUALQUER PESSOA
  * Depois de qualquer alteracao no codigo: Implantar > GERENCIAR implantacoes >
  * editar (lapis) > Versao: Nova > Implantar. Salvar o codigo NAO muda o que a
  * URL ja publicada serve.
  */
 
-var PASTA_ID    = '18G-6-wN-qdQ--AujHjqzGFUlhcpW3duh';  // "Verificacoes de seguranca do PC"
+// Shared Drive "TI - Verificacoes de seguranca do PC" (0AAwu1Ftkiza5Uk9PVA),
+// subpasta "relatorios". Membros: gcintra@ignetworks.com (organizador) e a conta
+// pessoal (gestor de conteudo, so para este script escrever).
+var PASTA_ID    = '1W2PCP9Kzguo3eCU4BmULY0vP2E-1UH7w';
 var MAX_BYTES   = 200 * 1024;   // relatorio real tem 2-8 KB
 var MAX_POR_DIA = 200;          // freio de vandalismo (a URL e' publica)
 
